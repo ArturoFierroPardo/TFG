@@ -1,0 +1,10 @@
+Para entrar en el entorno y programar en jupyter:
+
+	cmd:
+		cd Desktop TFG
+		call entorno_tfg\Scripts\activate
+		jupyter notebook
+Para salir del entorno y dejar de programar:
+	cmd:
+		^C o ^Z hasta que se quite lo de jupyter
+		deactivate
