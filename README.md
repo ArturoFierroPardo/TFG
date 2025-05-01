@@ -1,4 +1,4 @@
-**RAWTEXT** --> Función apply_rt(ruta):
+**RAWTEXT --> Función apply_rt(ruta):**
 
 - apply_rt() es una función simple y reutilizable que permite cargar archivos .txt como texto plano en Python. Se utiliza como paso inicial en cualquier pipeline de procesamiento de lenguaje natural, permitiendo trabajar sobre el contenido textual del archivo. Se puede extender para que lea otro tipo de archivos o urls.
 
@@ -23,7 +23,7 @@ def apply_rt(ruta):
 
 
 
-**SENTENCE SEGMENTATION** --> Función apply_segment(raw):
+**SENTENCE SEGMENTATION --> Función apply_segment(raw):**
 
 - apply_segment() es una función que segmenta un texto en frases completas usando el modelo `en_core_web_sm` de spaCy.
 
@@ -54,7 +54,7 @@ def apply_segment(raw):
 
 
 
-**TOKENIZATION** --> Función tokenize_text(raw):
+**TOKENIZATION --> Función tokenize_text(raw):**
 
 - tokenize_text() es una función que tokeniza el texto en palabras usando NLTK (word_tokenize)
 
@@ -82,7 +82,7 @@ def tokenize_text(raw):
 
 
 
-**PART OF SPEECH (POS)** --> Función tg_tk(tokens):
+**PART OF SPEECH (POS) --> Función tg_tk(tokens):**
 
 - tg_tk() es una función que aplica etiquetado gramatical (POS tagging) a una lista de tokens usando spaCy.
 
@@ -124,7 +124,7 @@ def tg_tk(tokens):
 
 
 
-**STOP WORD REMOVAL** --> Función stwrd(tokens):
+**STOP WORD REMOVAL --> Función stwrd(tokens):**
 
 - stwrd() es una función que elimina las stopwords (palabras vacías) del texto tokenizado.
 
@@ -159,7 +159,7 @@ def stwrd(tokens):
 
 
 
-**STEMMING** --> Función apply_stemm(tokens):
+**STEMMING --> Función apply_stemm(tokens):**
 
 - apply_stemm() es una función que aplica stemming (reducción a raíz) a una lista de tokens en inglés usando el algoritmo snowball.
 
@@ -199,7 +199,7 @@ def apply_stemm(tokens):
 
 
 
-**LEMMATIZATION** --> Función apply_lemm(tokens):
+**LEMMATIZATION --> Función apply_lemm(tokens):**
 
 - apply_lemm() es una función que aplica aplica lematización a una lista de tokens usando spaCy.
 
