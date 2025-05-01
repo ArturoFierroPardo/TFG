@@ -29,10 +29,10 @@ def tg_tk(tokens):
 
 [línea 15]: Recorre cada token del documento procesado por spaCy.
 
-[línea 17]: Crea una tupla con tres elementos: token.text: la palabra original
+[línea 16]: Crea una tupla con tres elementos: token.text: la palabra original
                                                token.pos_: la categoría gramatical general (NOUN, VERB, ADJ, etc.)
                                                token.tag_: la etiqueta gramatical específica (NN, VBD, JJ, etc.)
 
-[línea 18]: Añade esa tupla a la lista pos_info.
+[línea 17]: Añade esa tupla a la lista pos_info.
 
-[línea 19]: Devuelve la lista completa con el etiquetado POS.
+[línea 18]: Devuelve la lista completa con el etiquetado POS.
