@@ -1,3 +1,52 @@
+**MAIN DESCRIPTIVO PREPROCESAMIENTO**
+
+- Este script ejecuta paso a paso todo el preprocesamiento NLP y muestra en consola ejemplos intermedios del resultado de cada función.
+- Que hace:
+            - Carga el texto desde un archivo .txt
+            - Segmenta en oraciones
+            - Tokeniza
+            - Etiqueta cada palabra gramaticalmente (POS tagging)
+            - Elimina stopwords
+            - Aplica stemming
+            - Aplica lematización
+  
+- Ejecución:
+            - "python main_descriptivo.py"
+  
+- Sálida:
+         - Primeros caracteres del texto original
+         - Las primeras frases segmentadas
+         - Los primeros tokens generados
+         - Etiquetado gramatical de tokens (POS y TAG)
+         - Tokens tras filtrado
+         - Stems
+         - Lemmas
+
+
+
+
+**TESTS PREPROCESSING (TDD)**
+- Este script aplica test-driven development (TDD) usando unittest, asegurando que cada paso del pipeline:
+                                                                                                          - Funciona correctamente
+                                                                                                          - Devuelve el tipo de datos esperado
+                                                                                                          - Tiene contenido válido
+
+- Que testea:
+             - Que el texto se carga correctamente
+             - Que la segmentación, tokenización y filtrado funcionan
+             - Que los resultados de stemming y lematización son coherentes
+             - Que el POS tagging devuelve tuplas bien formadas
+
+- Ejecución:
+            - "python test_preprocessing.py"
+
+- Sálida:
+         - "OK" si se pasan todos los tests
+         - Falla si no pasa un test
+   
+
+
+
 **RAWTEXT --> Función apply_rt(ruta):**
 
 - apply_rt() es una función simple y reutilizable que permite cargar archivos .txt como texto plano en Python. Se utiliza como paso inicial en cualquier pipeline de procesamiento de lenguaje natural, permitiendo trabajar sobre el contenido textual del archivo. Se puede extender para que lea otro tipo de archivos o urls.
