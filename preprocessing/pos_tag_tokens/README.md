@@ -13,7 +13,6 @@ def tg_tk(tokens):
     doc = nlp(" ".join(tokens))
     pos_info = []
     for token in doc:
-        if token.is_alpha:
             tokenstag = (token.text, token.pos_, token.tag_)
             pos_info.append(tokenstag)
     return pos_info
@@ -29,8 +28,6 @@ def tg_tk(tokens):
 [línea 14]: Crea una lista vacía donde vamos a guardar el resultado final: una lista de tuplas con la info gramatical de cada palabra.
 
 [línea 15]: Recorre cada token del documento procesado por spaCy.
-
-[línea 16]: Esta condición filtra los tokens para que solo se incluyan los que son palabras reales (letras).
 
 [línea 17]: Crea una tupla con tres elementos: token.text: la palabra original
                                                token.pos_: la categoría gramatical general (NOUN, VERB, ADJ, etc.)
