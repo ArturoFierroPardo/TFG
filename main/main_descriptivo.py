@@ -2,6 +2,7 @@ import sys
 import os
 
 sys.path.append("C:/Users/artur/Desktop/TFG/preprocessing")
+sys.path.append("C:/Users/artur/Desktop/TFG/rnn")
 
 from rawtext.rawtext import apply_rt
 from sent_segmentation.sent_segmentation import apply_segment
@@ -10,6 +11,10 @@ from pos_tag_tokens.pos_tag_tokens import tg_tk
 from remove_stopwords.remove_stopwords import stwrd
 from stemming.stemming import apply_stemm
 from lemmatization.lemmatization import apply_lemm
+from line_by_line import modelo2_lbl
+from one_word_in_one_word_out import modelo1_owi_owo
+from two_words_in_one_word_out import modelo3_twi_owo
+
 
 def main():
     raw = apply_rt("C:/Users/artur/Desktop/TFG/textos/textoplano.txt")
@@ -43,6 +48,14 @@ def main():
     lemas = apply_lemm(filtered_tokens)
     print(f"Lemmas generados:")
     print(lemas[:10], "\n")
+
+    limited_lemmas = lemas[:50]
+
+    print(modelo1_owi_owo(limited_lemmas, 300, 50, 'black'), "\n")
+
+    print(modelo2_lbl(limited_lemmas, 300, 49, 'black'), "\n")
+    
+    print(modelo3_twi_owo(limited_lemmas, 300, 48, 'hole massive'), "\n")
 
 if __name__ == "__main__":
     main()
