@@ -1,0 +1,27 @@
+# Modelos y checkpoints
+*.gguf
+*.pt
+*.bin
+*.safetensors
+checkpoint-*/
+
+# Entorno Python
+entorno_tfg/
+__pycache__/
+*.pyc
+
+# Carpetas de build Flutter
+build/
+.dart_tool/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claves (por si acaso)
+.env
