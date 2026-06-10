@@ -7,7 +7,7 @@ Para cada Mini-SLM (Qwen 1.5B, Llama 1B, Gemma 3 1B):
   3. Entrena sobre el split TRAIN (subtemas exclusivos, no leakage)
   4. Valida sobre el split VAL al final de cada época
   5. Guarda el adapter LoRA + curva de aprendizaje
-  6. Inferencia sobre TODO el dataset con el modelo fine-tuneado
+  6. Inferencia sobre datasets (teleco y/o kelm) con el modelo fine-tuneado
   7. Calcula métricas + costes + CO2
 
 HIPERPARÁMETROS (estándar literatura LoRA):
@@ -25,8 +25,10 @@ ROBUSTO PARA 4 DÍAS SIN SUPERVISIÓN:
   - Si un modelo entero falla, salta al siguiente
 
 Uso:
-    python pipeline_finetuning.py
-    python pipeline_finetuning.py --csv dataset_teleco.csv --skip llama-1b
+    python pipeline_finetuning.py                                # teleco (por defecto)
+    python pipeline_finetuning.py --dataset kelm                 # solo kelm
+    python pipeline_finetuning.py --dataset all                  # teleco + kelm
+    python pipeline_finetuning.py --dataset kelm --skip llama-1b
 """
 
 import sys
@@ -78,6 +80,12 @@ MAX_LEN        = 512   # longitud máxima de secuencia
 KWH_POR_TOKEN = {"qwen-1.7b": 4e-8, "llama-1b": 3e-8, "gemma-3-1b": 3e-8}
 CO2_POR_KWH = 475
 TOKENS_PROMPT_SISTEMA = 45
+
+# --- KELM config ---
+KELM_CSV = "kelm_stem_60k.csv"
+KELM_SISTEMA = ("You are a helpful assistant. Convert the following structured "
+                "data into a fluent English sentence.")
+KELM_LIMIT = None  # None = todo el dataset
 
 ESTADO_PATH = os.path.join(OUTDIR_BASE, "estado_finetuning.json")
 LOG_PATH    = os.path.join(OUTDIR_BASE, "pipeline_finetuning.log")
@@ -671,6 +679,244 @@ def inferencia_modelo_ft(clave, hf_id, args):
 
 
 # =========================================================
+# INFERENCIA KELM CON MODELO FINE-TUNEADO
+# =========================================================
+
+def inferencia_modelo_ft_kelm(clave, hf_id, args):
+    """Inferencia post-FT sobre KELM (sin splits, dataset completo)."""
+    log("=" * 60)
+    log(f"INFERENCIA FT KELM: {clave}")
+    log("=" * 60)
+
+    outdir = os.path.join(OUTDIR_BASE, "minislm_finetuned", clave)
+    adapter_dir = os.path.join(outdir, "lora_adapter")
+
+    if not os.path.exists(os.path.join(adapter_dir, "adapter_config.json")):
+        log(f"  [X] No existe adapter, ¿se hizo el fine-tuning?", "ERROR")
+        return False
+
+    kelm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), KELM_CSV)
+    if not os.path.exists(kelm_path):
+        log(f"  [X] No existe {kelm_path}", "ERROR")
+        return False
+
+    import re
+    import pandas as pd
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from peft import PeftModel
+    from tqdm import tqdm
+
+    df = pd.read_csv(kelm_path)
+    if KELM_LIMIT:
+        df = df.head(KELM_LIMIT)
+    n_total = len(df)
+    log(f"  KELM: {n_total} filas")
+
+    results_csv = os.path.join(outdir, f"results_kelm_{clave}_ft.csv")
+
+    # Resume robusto
+    n_done = 0
+    if os.path.exists(results_csv):
+        try:
+            df_done = pd.read_csv(results_csv, encoding='utf-8')
+            len_actual = len(df_done)
+            if len_actual >= n_total:
+                log(f"  [OK] KELM ya procesado por completo")
+                return True
+            elif len_actual > 0:
+                n_done = len_actual - 1
+                df_done.head(n_done).to_csv(results_csv, index=False)
+            log(f"  Reanudando desde fila {n_done}")
+        except Exception:
+            n_done = 0
+
+    if n_done == 0:
+        with open(results_csv, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Structured_Data', 'Human_Reference',
+                             'LLM_Generated', 'Time_per_row_seconds'])
+
+    # Cargar modelo
+    log(f"  Cargando modelo base + adapter LoRA...")
+    tokenizer = AutoTokenizer.from_pretrained(adapter_dir)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    dtype_inf = detectar_dtype()
+    base = AutoModelForCausalLM.from_pretrained(
+        hf_id, torch_dtype=dtype_inf, device_map="auto")
+    model = PeftModel.from_pretrained(base, adapter_dir)
+    model.eval()
+
+    is_gemma = es_modelo_gemma(clave)
+    is_qwen3 = es_modelo_qwen3(clave) or es_modelo_qwen3(hf_id)
+
+    def generar_kelm(structured_data, max_tokens=256):
+        prompt = f"{structured_data}"
+        if is_gemma:
+            msgs = [{"role": "user", "content": f"{KELM_SISTEMA}\n\n{prompt}"}]
+        else:
+            msgs = [{"role": "system", "content": KELM_SISTEMA},
+                    {"role": "user",   "content": prompt}]
+        inputs = None
+        if is_qwen3:
+            try:
+                inputs = tokenizer.apply_chat_template(
+                    msgs, return_tensors="pt", add_generation_prompt=True,
+                    enable_thinking=False).to(model.device)
+            except (TypeError, ValueError):
+                inputs = tokenizer.apply_chat_template(
+                    msgs, return_tensors="pt", add_generation_prompt=True
+                ).to(model.device)
+        else:
+            inputs = tokenizer.apply_chat_template(
+                msgs, return_tensors="pt", add_generation_prompt=True
+            ).to(model.device)
+        with torch.no_grad():
+            out = model.generate(inputs, max_new_tokens=max_tokens,
+                                 do_sample=False,
+                                 pad_token_id=tokenizer.pad_token_id)
+        new_tokens = out[0][inputs.shape[1]:]
+        text = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        if "<think>" in text:
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+            text = re.sub(r"<think>.*", "", text, flags=re.DOTALL).strip()
+        text = text.replace('\n', ' ').replace('\r', ' ').strip()
+        return text
+
+    try:
+        log(f"  Procesando {n_done} -> {n_total}...")
+        with open(results_csv, 'a', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            for idx in tqdm(range(n_done, n_total), desc=f"{clave} FT KELM"):
+                row = df.iloc[idx]
+                structured = str(row['Structured_Data']).replace('\n', ' ').strip()
+                reference  = str(row['Human_Reference']).replace('\n', ' ').strip()
+                t0 = time.time()
+                try:
+                    generado = generar_kelm(structured)
+                except Exception as e:
+                    generado = f"Error: {str(e)[:80]}"
+                elapsed = time.time() - t0
+                writer.writerow([structured, reference, generado, round(elapsed, 4)])
+                f.flush()
+    finally:
+        del model, base, tokenizer
+        liberar_gpu()
+
+    log(f"  [OK] KELM inferencia completada: {results_csv}")
+    return True
+
+
+def metricas_ft_kelm(clave, args):
+    """Calcula métricas KELM (BERTScore en inglés con distilbert)."""
+    log("=" * 60)
+    log(f"MÉTRICAS FT KELM: {clave}")
+    log("=" * 60)
+
+    outdir = os.path.join(OUTDIR_BASE, "minislm_finetuned", clave)
+    nombre = next(n for c, _, n in MINI_SLMS if c == clave)
+    results_csv  = os.path.join(outdir, f"results_kelm_{clave}_ft.csv")
+    metricas_csv = os.path.join(outdir, f"metricas_por_fila_{nombre}_kelm.csv")
+
+    if not os.path.exists(results_csv):
+        log(f"  [X] No existe {results_csv}", "WARN")
+        return False
+    if os.path.exists(metricas_csv):
+        log(f"  [OK] Métricas KELM ya existen, saltando")
+        return True
+
+    import pandas as pd
+    from tqdm import tqdm
+    import evaluate
+
+    df = pd.read_csv(results_csv)
+    df_ok = df[~df['LLM_Generated'].astype(str).str.startswith('Error:')].reset_index(drop=True)
+    n = len(df_ok)
+    log(f"  Filas válidas: {n}")
+    if n == 0: return False
+
+    preds = df_ok['LLM_Generated'].astype(str).tolist()
+    refs  = df_ok['Human_Reference'].astype(str).tolist()
+    structured = df_ok['Structured_Data'].astype(str).tolist()
+    tiempos = df_ok['Time_per_row_seconds'].astype(float).tolist()
+
+    rouge = evaluate.load('rouge')
+    rouges = []
+    for i in tqdm(range(n), desc="ROUGE-L KELM"):
+        try:
+            r = rouge.compute(predictions=[preds[i]], references=[refs[i]])
+            rouges.append(round(r['rougeL'], 4))
+        except: rouges.append(0.0)
+
+    meteor = evaluate.load('meteor')
+    meteors = []
+    for i in tqdm(range(n), desc="METEOR KELM"):
+        try:
+            r = meteor.compute(predictions=[preds[i]], references=[refs[i]])
+            meteors.append(round(r['meteor'], 4))
+        except: meteors.append(0.0)
+
+    bleu = evaluate.load('bleu')
+    bleus = []
+    for i in tqdm(range(n), desc="BLEU KELM"):
+        try:
+            bleus.append(round(bleu.compute(predictions=[preds[i]], references=[[refs[i]]])['bleu'], 4))
+        except: bleus.append(0.0)
+
+    # BERTScore en INGLÉS con distilbert (diferencia clave vs teleco)
+    bert = evaluate.load('bertscore')
+    BATCH = 64
+    bertscores = []
+    for i in tqdm(range(0, n, BATCH), desc="BERTScore KELM"):
+        try:
+            r = bert.compute(predictions=preds[i:i+BATCH],
+                             references=refs[i:i+BATCH],
+                             lang="en", model_type="distilbert-base-uncased")
+            bertscores.extend([round(x, 4) for x in r['f1']])
+        except:
+            bertscores.extend([0.0] * len(preds[i:i+BATCH]))
+
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        def n_tokens(t): return len(enc.encode(str(t)))
+    except:
+        def n_tokens(t): return len(str(t)) // 4
+
+    kwh = KWH_POR_TOKEN.get(clave, 4e-8)
+    tok_in_list, tok_out_list, costes, co2s = [], [], [], []
+    for i in range(n):
+        ti = n_tokens(structured[i]) + TOKENS_PROMPT_SISTEMA
+        to = n_tokens(preds[i])
+        tok_in_list.append(ti)
+        tok_out_list.append(to)
+        costes.append(0.0)
+        co2s.append(round((ti+to) * kwh * CO2_POR_KWH, 6))
+
+    df_out = pd.DataFrame({
+        'ROUGE_L': rouges, 'METEOR': meteors, 'BLEU': bleus,
+        'BERTScore': bertscores, 'Time_seconds': tiempos,
+        'Tokens_Input': tok_in_list, 'Tokens_Output': tok_out_list,
+        'Coste_USD': costes, 'CO2_gramos': co2s,
+    })
+    df_out.to_csv(metricas_csv, index=False)
+
+    with open(metricas_csv, 'a', encoding='utf-8') as f:
+        f.write(f"\n--- RESUMEN {nombre} (KELM) ---\n")
+        f.write(f"Filas,{n}\n")
+        f.write(f"ROUGE-L medio,{round(sum(rouges)/n, 4)}\n")
+        f.write(f"METEOR medio,{round(sum(meteors)/n, 4)}\n")
+        f.write(f"BLEU medio,{round(sum(bleus)/n, 4)}\n")
+        f.write(f"BERTScore medio,{round(sum(bertscores)/n, 4)}\n")
+        f.write(f"Tiempo medio (s),{round(sum(tiempos)/n, 4)}\n")
+        f.write(f"CO2 total (g),{round(sum(co2s), 4)}\n")
+
+    log(f"  [OK] Guardado: {metricas_csv}")
+    return True
+
+
+# =========================================================
 # MÉTRICAS POST-FT
 # =========================================================
 
@@ -844,10 +1090,15 @@ def preparar_nltk():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--csv",  default="dataset_teleco.csv")
-    parser.add_argument("--skip", nargs="*", default=[])
-    parser.add_argument("--solo", nargs="*", default=None)
+    parser.add_argument("--csv",     default="dataset_teleco.csv")
+    parser.add_argument("--dataset", default="teleco", choices=["teleco", "kelm", "all"],
+                        help="Dataset para inferencia: teleco, kelm o all")
+    parser.add_argument("--skip",    nargs="*", default=[])
+    parser.add_argument("--solo",    nargs="*", default=None)
     args = parser.parse_args()
+
+    run_teleco = args.dataset in ("teleco", "all")
+    run_kelm   = args.dataset in ("kelm", "all")
 
     if not os.path.exists(SPLITS_PATH):
         log(f"[X] No existe {SPLITS_PATH}. Ejecuta primero hacer_splits.py", "ERROR")
@@ -871,6 +1122,7 @@ def main():
             log(f"  Saltando {clave} (--skip)")
             continue
 
+        # --- Fine-tuning (siempre sobre teleco) ---
         try:
             ok = finetune_modelo(clave, hf_id, args)
             if ok: estado[clave]["finetuning"] = "completado"; guardar_estado(estado)
@@ -879,20 +1131,35 @@ def main():
             import traceback; log(traceback.format_exc(), "ERROR")
             continue
 
-        try:
-            ok = inferencia_modelo_ft(clave, hf_id, args)
-            if ok: estado[clave]["inferencia"] = "completado"; guardar_estado(estado)
-        except Exception as e:
-            log(f"[X] Inferencia FT {clave} falló: {e}", "ERROR")
-            import traceback; log(traceback.format_exc(), "ERROR")
-            continue
+        # --- Inferencia + métricas TELECO ---
+        if run_teleco:
+            try:
+                ok = inferencia_modelo_ft(clave, hf_id, args)
+                if ok: estado[clave]["inferencia"] = "completado"; guardar_estado(estado)
+            except Exception as e:
+                log(f"[X] Inferencia FT teleco {clave} falló: {e}", "ERROR")
+                import traceback; log(traceback.format_exc(), "ERROR")
 
-        try:
-            ok = metricas_ft(clave, args)
-            if ok: estado[clave]["metricas"] = "completado"; guardar_estado(estado)
-        except Exception as e:
-            log(f"[X] Métricas FT {clave} falló: {e}", "ERROR")
-            import traceback; log(traceback.format_exc(), "ERROR")
+            try:
+                ok = metricas_ft(clave, args)
+                if ok: estado[clave]["metricas"] = "completado"; guardar_estado(estado)
+            except Exception as e:
+                log(f"[X] Métricas FT teleco {clave} falló: {e}", "ERROR")
+                import traceback; log(traceback.format_exc(), "ERROR")
+
+        # --- Inferencia + métricas KELM ---
+        if run_kelm:
+            try:
+                ok = inferencia_modelo_ft_kelm(clave, hf_id, args)
+            except Exception as e:
+                log(f"[X] Inferencia FT kelm {clave} falló: {e}", "ERROR")
+                import traceback; log(traceback.format_exc(), "ERROR")
+
+            try:
+                ok = metricas_ft_kelm(clave, args)
+            except Exception as e:
+                log(f"[X] Métricas FT kelm {clave} falló: {e}", "ERROR")
+                import traceback; log(traceback.format_exc(), "ERROR")
 
     log("#" * 60)
     log("PIPELINE FINE-TUNING - FIN")
