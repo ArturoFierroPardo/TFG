@@ -1,0 +1,56 @@
+name: app_teleco_slm
+description: >
+  App offline de inferencia LLM local para ingeniería de telecomunicaciones.
+  Ejecuta Qwen 2.5 1.5B Instruct (GGUF) en CPU usando llama.cpp.
+
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.1.0 <4.0.0"
+  flutter: ">=3.16.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Gestión de estado ---
+  provider: ^6.1.1
+
+  # --- Base de datos local (historial) ---
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0+4
+  path: ^1.8.3
+  path_provider: ^2.1.1
+
+  # --- Inferencia LLM local via llama-server (HTTP localhost) ---
+  # No necesita paquete externo, usa dart:io y dart:convert
+
+  # --- Persistencia de configuracion ---
+  shared_preferences: ^2.2.2
+
+  # --- UI ---
+  google_fonts: ^6.1.0
+  gpt_markdown: ^1.1.5
+  shimmer: ^3.0.0
+
+  # --- Selección de archivos ---
+  file_picker: ^10.0.0
+
+  # --- Generación de IDs únicos ---
+  uuid: ^4.2.1
+
+  # --- Internacionalización ---
+  intl: ^0.19.0
+  llama_flutter_android: ^0.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/iconos/
