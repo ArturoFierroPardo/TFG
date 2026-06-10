@@ -8,38 +8,47 @@ Este proyecto compara LLMs, SLMs, Mini-SLMs, modelos fine-tuneados y un GAN gene
 
 ```
 TFG/
-├── pipelines/            # Scripts de inferencia para cada familia de modelos
+├── LLM/                  # Pipeline de inferencia para LLMs (+70B params)
+├── SLM/                  # Pipeline de inferencia para SLMs (~7-14B params)
+├── mini-SLM/             # Pipeline de inferencia para Mini-SLMs (~1-3B params)
+├── GAN/                  # Pipeline de la GAN generativa
+├── fine-tuning/          # Fine-tuning LoRA y fusión de adaptadores
 ├── graficas_y_tests/     # Visualizaciones y análisis estadístico
-├── fine-tuning/          # Fine-tuning LoRA, fusión de adaptadores
-└── app_teleco_slm/       # App Flutter (Android + Windows)
+├── app_teleco_slm/       # App Flutter (Android + Windows)
+├── base_teleco/          # Dataset Teleco (~24.680 pares Q&A)
+├── base_kelm/            # Dataset KELM filtrado por temática STEM
+├── splits/               # Splits train/val/test por subtema
+├── requirements.txt      # Dependencias Python
+└── README.md
 ```
 
-## pipelines/
+## LLM/
 
-Scripts de inferencia que ejecutan cada modelo sobre los cuatro datasets y generan los CSV de resultados con métricas BLEU, ROUGE-L, METEOR y BERTScore.
+Pipeline de inferencia para modelos grandes (DeepSeek-V3, Llama 3.3 70B, Qwen 2.5 72B) vía API (OpenRouter / Together AI) sobre los tres datasets genéricos (WebNLG, ToTTo, KELM).
 
-- `pipelineLLM.py` — Modelos grandes (+70B params) vía API (OpenRouter / Together AI) en los tres datasets genéricos.
-- `pipelineSLM.py` — Modelos medianos (~7-14B params) vía API (OpenRouter / Together AI) en los tres datasets genéricos.
-- `pipelineSLMbbdd.py` — Evaluación de SLMs sobre el dataset Teleco vía API (OpenRouter / Together AI).
-- `pipelineMiniSLM.py` — Modelos pequeños (~1-3B params) vía API (OpenRouter / Together AI) en los tres datasets genéricos.
-- `pipelineminiSLMbbdd.py` — Evaluación de Mini-SLMs sobre el dataset Teleco vía API (OpenRouter / Together AI).
-- `pipeline_gan.py` — Evaluación de la GAN sobre el dataset Telecomunicaciones.
-- `pipeline_finetuning.py` — Evaluación de los modelos fine-tuned sobre el dataset Telecomunicaciones y KELM. Genera plots de las curvas de aprendizaje de cada modelo fine-tuned.
-- `gan_teleco_v3.py` — GAN generativa de texto para le dataset de Telecomunicaciones. Genera plots de las curvas de aprendizaje del modelo.
+## SLM/
+
+Pipeline de inferencia para modelos medianos (Gemma 2 9B, Llama 3.2 3B, Qwen 2.5 7B) vía API (OpenRouter / Together AI) sobre los tres datasets genéricos y el dataset Teleco.
+
+## mini-SLM/
+
+Pipeline de inferencia para modelos pequeños (Gemma 3 1B, Llama 3.2 1B, Qwen 3 1.7B) vía API (OpenRouter / Together AI) sobre los tres datasets genéricos y el dataset Teleco. Incluye versiones con limpieza de tags `<think>` para Qwen3 1.7B.
+
+## GAN/
+
+Pipeline completo de la GAN generativa de texto (Conditional SeqGAN con Gumbel-Softmax, ~430M params). Incluye el script de entrenamiento, inferencia sobre Teleco y KELM, cálculo de métricas y generación de curvas de aprendizaje.
+
+## fine-tuning/
+
+Fine-tuning LoRA de Gemma 3 1B, Llama 3.2 1B y Qwen3 1.7B sobre el dataset Teleco (LR=2e-4, rank=8, alpha=16, dropout=0.05, 3 epochs). Incluye fusión de adaptadores LoRA con los modelos base, inferencia sobre Teleco y KELM, y cálculo de métricas.
 
 ## graficas_y_tests/
 
 Generación de gráficas y tests estadísticos sobre los resultados de los pipelines.
 
 - Boxplots, violin plots, bar plots, diagramas de diferencia crítica (CD), Q-Q plots y gráficas de tiempos de inferencia.
-- Tests de Shapiro-Wilk, Friedman, Nemenyi post-hoc, Wilcoxon con tamaño de efecto r e intervalos de confianza bootstrap al 95%.
-- Dos grupos experimentales: **Grupo 1** (9 modelos, WebNLG/ToTTo/KELM) y **Grupo 2** (7 modelos incluyendo GAN y fine-tuned, Teleco).
-
-## fine-tuning/
-
-Entrenamiento y preparación de los modelos fine-tuneados.
-
-- Fusión de adaptadores LoRA con el modelo base.
+- Tests de Friedman, Nemenyi post-hoc, Wilcoxon con tamaño de efecto r e intervalos de confianza bootstrap al 95%.
+- Dos grupos experimentales: **Grupo 1** (LLM vs SLM vs Mini-SLM, WebNLG/ToTTo/KELM) y **Grupo 2** (Mini-SLM base vs Mini-SLM fine-tuned vs GAN, Teleco).
 
 ## app_teleco_slm/
 
@@ -50,7 +59,15 @@ App Flutter multiplataforma que permite consultar información de telecomunicaci
 - Filtro de tokens de modo thinking con auto-retry.
 - System prompt few-shot optimizado para respuestas en español.
 
-> **Nota:** El archivo `.gguf` del modelo no está incluido por su tamaño. Para generarlo, descárgalo desde [https://huggingface.co/arturofierrop/qwen-3-1.7B-teleco-slm-GGUF].
+> **Nota:** El archivo `.gguf` del modelo no está incluido por su tamaño. Para generarlo, descárgalo desde [Hugging Face](https://huggingface.co/arturofierrop/qwen-3-1.7B-teleco-slm-GGUF).
+
+## base_teleco/
+
+Dataset propio en español construido a partir del plan de estudios de telecomunicaciones de la Universidad CEU San Pablo (~24.680 pares Q&A). Incluye el script `hacer_splits.py` para generar los splits train/val/test por subtema (GroupKFold), evitando data leakage.
+
+## base_kelm/
+
+Dataset KELM filtrado por temática STEM (~60.000 filas). Incluye el script de filtrado `kelm.py` que selecciona entradas relacionadas con informática, telecomunicaciones, electrónica, ingeniería y ciencias aplicadas.
 
 ## Datasets
 
@@ -58,12 +75,12 @@ App Flutter multiplataforma que permite consultar información de telecomunicaci
 |---------|--------|-------|-------------|
 | WebNLG | EN | ~13.000 | Tripletas RDF → texto |
 | ToTTo | EN | ~120.000 | Tablas → descripciones |
-| KELM | EN | ~15.000 | Grafos de conocimiento → texto |
+| KELM | EN | ~60.000 | Grafos de conocimiento → texto (filtrado STEM) |
 | Teleco | ES | ~24.680 | Currículo de telecomunicaciones CEU → Q&A |
 
 ## Tecnologías principales
 
-- Python 3.10+, PyTorch, Hugging Face Transformers, PEFT, llama.cpp
+- Python 3.11, PyTorch, Hugging Face Transformers, PEFT, llama.cpp
 - Flutter / Dart
 - APIs: OpenRouter, Together AI
 
