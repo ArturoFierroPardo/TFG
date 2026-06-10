@@ -8,8 +8,8 @@ Genera/actualiza metricas_por_fila_*.csv con las columnas:
 Si el metricas_por_fila ya existe, solo calcula las columnas faltantes.
 
 USO:
-  python calcula_metricas.py --input-dir analisis
-  python calcula_metricas.py --input-dir analisis --solo results_teleco_Qwen3_1.7B.csv
+  python calcula_metricas.py --input-dir resultados
+  python calcula_metricas.py --input-dir resultados --solo results_teleco_Qwen3_1.7B.csv
 """
 import csv, os, glob, argparse
 import pandas as pd
@@ -327,7 +327,7 @@ def rellenar_coste_co2(df_met, precio_key):
 # ══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis",
+    parser.add_argument("--input-dir", default="resultados",
                         help="Carpeta con results_*.csv y metricas_por_fila_*.csv")
     parser.add_argument("--batch-bert", type=int, default=1000)
     parser.add_argument("--solo", default=None, help="Procesar solo este results_*.csv")

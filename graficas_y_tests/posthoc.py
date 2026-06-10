@@ -7,7 +7,7 @@ CD Diagrams mejorados + Reporte Post-Hoc:
   - Juntos: las 4 métricas de calidad en un grid 2×2 por dataset
   - Reporte: Reporte_PostHoc.txt + resultados_posthoc_pares.csv
 
-USO: python posthoc.py --input-dir analisis
+USO: python posthoc.py --input-dir resultados
 """
 import pandas as pd
 import numpy as np
@@ -585,7 +585,7 @@ def generar_reporte_posthoc(todos_resultados, output_dir):
 # ── Main ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     parser.add_argument("--output-dir", default="CD_diagrams")
     args = parser.parse_args()
 

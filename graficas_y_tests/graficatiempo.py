@@ -4,7 +4,7 @@ Gráficos de Líneas Acumulativos — G1 (9 modelos × 3 datasets) + G2 (7 model
 Escala Log-Log. LLMs: continua. SLMs: discontinua. Mini-SLMs: punteada.
 G2: GAN continua, Base punteada, FT discontinua.
 
-USO: python graficatiempo.py --input-dir analisis --output-dir graficas_tiempo
+USO: python graficatiempo.py --input-dir resultados --output-dir graficas_tiempo
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -178,7 +178,7 @@ def grafico_acumulativo(df, dataset, orden, colores, estilos, marcadores, titulo
 # ── Main ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     parser.add_argument("--output-dir", default="graficas_tiempo")
     args = parser.parse_args()
 

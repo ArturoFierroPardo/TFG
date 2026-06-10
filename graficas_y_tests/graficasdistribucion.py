@@ -6,7 +6,7 @@ Generador Maestro de Gráficas KDE (Montañas de Distribución).
 - Unifica 'teleco' y 'valtest' bajo el mismo nombre: 'Teleco'.
 - Crea subcarpetas por modelo.
 
-USO: python distribucion_fases.py --input-dir analisis
+USO: python distribucion_fases.py --input-dir resultados
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -311,7 +311,7 @@ def generar_agrupadas(df):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     args = parser.parse_args()
 
     if not os.path.exists(args.input_dir):

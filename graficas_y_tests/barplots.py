@@ -3,7 +3,7 @@
 Barplots globales — G1 (9 modelos × 3 datasets) + G2 (7 modelos × Teleco).
 Genera Coste, CO2, Tiempo a partir de los CSVs por fila.
 
-USO: python barplots.py --input-dir analisis --output-dir barplots
+USO: python barplots.py --input-dir resultados --output-dir barplots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -226,7 +226,7 @@ def generar_barplots(df, datasets, orden_modelos, colores, prefijo, output_dir):
 # ── Main ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     parser.add_argument("--output-dir", default="barplots")
     args = parser.parse_args()
 

@@ -15,7 +15,7 @@ Genera:
   - Reporte_Bootstrap.txt
   - Reporte_Bootstrap.csv
 
-USO: python bootstrap_ci.py --input-dir analisis
+USO: python bootstrap_ci.py --input-dir resultados
 """
 import pandas as pd
 import numpy as np
@@ -215,7 +215,7 @@ def ejecutar_bootstrap(df, grupo, f, filas_csv):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     args = parser.parse_args()
 
     if not os.path.exists(args.input_dir):

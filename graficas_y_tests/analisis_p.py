@@ -10,7 +10,7 @@ Grupo 2: 7 modelos (GAN + mini-SLM base + mini-SLM FT) en Teleco.
 
 Genera: Reporte_Tests_Globales.txt
 
-USO: python analisis_global.py --input-dir analisis
+USO: python analisis_global.py --input-dir resultados
 """
 import pandas as pd
 import numpy as np
@@ -265,7 +265,7 @@ def ejecutar_tests(df, grupo, f):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     args = parser.parse_args()
 
     if not os.path.exists(args.input_dir):

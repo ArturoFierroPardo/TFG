@@ -7,8 +7,8 @@ Rankings de Modelos por Métrica × Dataset.
 - Genera un .txt con los rankings y un .csv con los valores.
 
 USO:
-  python rankings.py --input-dir analisis --modo media
-  python rankings.py --input-dir analisis --modo mediana
+  python rankings.py --input-dir resultados --modo media
+  python rankings.py --input-dir resultados --modo mediana
 """
 import pandas as pd
 import numpy as np
@@ -204,7 +204,7 @@ def generar_rankings(df, grupo, modo, f, filas_csv):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     parser.add_argument("--modo", choices=["media", "mediana"], default="media",
                         help="Criterio para ordenar: 'media' o 'mediana'")
     args = parser.parse_args()

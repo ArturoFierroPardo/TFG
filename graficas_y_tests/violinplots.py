@@ -3,7 +3,7 @@
 Violinplots unificados — G1 (9 modelos × 3 datasets) + G2 (7 modelos × Teleco).
 Filtra outliers extremos (IQR×3) antes de dibujar.
 
-USO: python violinplots.py --input-dir analisis --output-dir violinplots
+USO: python violinplots.py --input-dir resultados --output-dir violinplots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -263,7 +263,7 @@ def generar_violins(df, orden, datasets, prefijo, output_dir, es_teleco=False):
 # ── Main ──────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     parser.add_argument("--output-dir", default="violinplots")
     args = parser.parse_args()
 

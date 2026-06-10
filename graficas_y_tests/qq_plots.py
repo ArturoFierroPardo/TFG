@@ -4,7 +4,7 @@ Q-Q Plots unificados:
   1. Individuales: 2×2 por métrica (un subplot por modelo), subcarpetas por escenario/dataset
   2. Grids: filas=métricas, columnas=modelos, una imagen por familia × dataset
 
-USO: python qq_plots.py --input-dir analisis --output-dir QQ_plots
+USO: python qq_plots.py --input-dir resultados --output-dir QQ_plots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -277,7 +277,7 @@ def generar_grids(df, output_dir):
 # ── Main ──────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input-dir', default='analisis')
+    parser.add_argument('--input-dir', default='resultados')
     parser.add_argument('--output-dir', default='QQ_plots')
     args = parser.parse_args()
 

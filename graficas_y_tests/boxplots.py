@@ -4,7 +4,7 @@ Boxplots unificados — individuales + grids 2×2.
   G1: 9 modelos × 3 datasets (WebNLG, ToTTo, KELM)
   G2: 7 modelos × Teleco (GAN, Mini-SLM Base, Mini-SLM FT)
 
-USO: python boxplots.py --input-dir analisis --output-dir boxplots
+USO: python boxplots.py --input-dir resultados --output-dir boxplots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -352,7 +352,7 @@ def grid_2x2(df, mod_groups, labels, modelos_leyenda, titulo_fig, fname):
 # ══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-dir", default="analisis")
+    parser.add_argument("--input-dir", default="resultados")
     parser.add_argument("--output-dir", default="boxplots")
     args = parser.parse_args()
 
