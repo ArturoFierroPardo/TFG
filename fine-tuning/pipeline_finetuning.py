@@ -1,33 +1,20 @@
 """
-Pipeline Fine-tuning LoRA - adapta Mini-SLMs al dominio de teleco.
+Fine-tuning LoRA de los Mini-SLMs (Qwen3 1.7B, Llama 3.2 1B, Gemma 3 1B) sobre el
+dominio de Telecomunicaciones.
 
-Para cada Mini-SLM (Qwen 1.5B, Llama 1B, Gemma 3 1B):
-  1. Carga el modelo base
-  2. Aplica LoRA con hiperparámetros estándar de literatura
-  3. Entrena sobre el split TRAIN (subtemas exclusivos, no leakage)
-  4. Valida sobre el split VAL al final de cada época
-  5. Guarda el adapter LoRA + curva de aprendizaje
-  6. Inferencia sobre datasets (teleco y/o kelm) con el modelo fine-tuneado
-  7. Calcula métricas + costes + CO2
+Para cada modelo: carga el modelo base, aplica LoRA (LR=2e-4, rank=8, alpha=16,
+dropout=0.05, 3 epocas), entrena sobre el split train (subtemas exclusivos, sin
+leakage), valida al final de cada epoca, guarda el adapter y la curva de
+aprendizaje, y realiza inferencia + metricas sobre teleco y/o kelm.
 
-HIPERPARÁMETROS (estándar literatura LoRA):
-  - LR = 2e-4
-  - Rank = 8
-  - Alpha = 16
-  - Dropout = 0.05
-  - Épocas = 3
-  - Batch size = adaptado a GPU
-
-ROBUSTO PARA 4 DÍAS SIN SUPERVISIÓN:
-  - Estado en estado_finetuning.json
-  - Si fine-tuning de un modelo se cae, reanuda desde checkpoint de Trainer
-  - Si inferencia se cae, reanuda fila a fila
-  - Si un modelo entero falla, salta al siguiente
+El proceso es reanudable: mantiene estado en estado_finetuning.json y reanuda
+desde el ultimo checkpoint del Trainer o desde la ultima fila de inferencia.
+El token de Hugging Face se lee de la variable de entorno HF_TOKEN.
 
 Uso:
-    python pipeline_finetuning.py                                # teleco (por defecto)
-    python pipeline_finetuning.py --dataset kelm                 # solo kelm
-    python pipeline_finetuning.py --dataset all                  # teleco + kelm
+    python pipeline_finetuning.py                       # teleco
+    python pipeline_finetuning.py --dataset kelm        # solo kelm
+    python pipeline_finetuning.py --dataset all         # teleco + kelm
     python pipeline_finetuning.py --dataset kelm --skip llama-1b
 """
 
@@ -43,23 +30,22 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import os, sys, json, csv, time, gc, argparse, datetime as dt
 
-# --- HUGGINGFACE TOKEN ------------------------------------
-HF_TOKEN = "REDACTED"
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 
 def hf_login():
-    if not HF_TOKEN or HF_TOKEN == "hf_PEGA_AQUI_TU_TOKEN":
-        print("[!] HF_TOKEN no configurado")
+    if not HF_TOKEN:
+        print("HF_TOKEN no configurado")
         return
     try:
         from huggingface_hub import login
         login(token=HF_TOKEN, add_to_git_credential=False)
-        print("[OK] Login HuggingFace OK")
+        print("Login HuggingFace OK")
     except Exception as e:
-        print(f"[!] Error login HF: {e}")
+        print(f"Error login HF: {e}")
 
 hf_login()
 
-# --- Config -----------------------------------------------
+# Config
 OUTDIR_BASE = "resultados_arturo"
 SPLITS_PATH = os.path.join(OUTDIR_BASE, "splits", "splits_por_subtema.json")
 
@@ -81,7 +67,7 @@ KWH_POR_TOKEN = {"qwen-1.7b": 4e-8, "llama-1b": 3e-8, "gemma-3-1b": 3e-8}
 CO2_POR_KWH = 475
 TOKENS_PROMPT_SISTEMA = 45
 
-# --- KELM config ---
+# KELM config
 KELM_CSV = "kelm_stem_60k.csv"
 KELM_SISTEMA = ("You are a helpful assistant. Convert the following structured "
                 "data into a fluent English sentence.")
@@ -90,10 +76,6 @@ KELM_LIMIT = None  # None = todo el dataset
 ESTADO_PATH = os.path.join(OUTDIR_BASE, "estado_finetuning.json")
 LOG_PATH    = os.path.join(OUTDIR_BASE, "pipeline_finetuning.log")
 
-
-# =========================================================
-# UTILIDADES
-# =========================================================
 
 def log(msg, level="INFO"):
     ts = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -187,10 +169,6 @@ def liberar_gpu():
         torch.cuda.empty_cache()
 
 
-# =========================================================
-# DATASET PARA FINE-TUNING
-# =========================================================
-
 def es_modelo_gemma(model_id_or_clave):
     """Detecta si es Gemma (no acepta role 'system')."""
     return "gemma" in str(model_id_or_clave).lower()
@@ -245,9 +223,9 @@ def construir_dataset_ft(csv_path, splits_path, tokenizer, modelo_clave):
     df_val = df_val.reset_index(drop=True)
 
     if len(df_train) < n_train_before:
-        log(f"  [!] Train: descartadas {n_train_before - len(df_train)} filas con NaN/vacías", "WARN")
+        log(f"  Train: descartadas {n_train_before - len(df_train)} filas con NaN/vacías", "WARN")
     if len(df_val) < n_val_before:
-        log(f"  [!] Val: descartadas {n_val_before - len(df_val)} filas con NaN/vacías", "WARN")
+        log(f"  Val: descartadas {n_val_before - len(df_val)} filas con NaN/vacías", "WARN")
 
     log(f"  Train: {len(df_train)} | Val: {len(df_val)}")
 
@@ -313,10 +291,6 @@ def construir_dataset_ft(csv_path, splits_path, tokenizer, modelo_clave):
     return ds_train, ds_val
 
 
-# =========================================================
-# FINE-TUNING DE UN MODELO
-# =========================================================
-
 def finetune_modelo(clave, hf_id, args):
     log("=" * 60)
     log(f"FINE-TUNING: {clave} ({hf_id})")
@@ -330,7 +304,7 @@ def finetune_modelo(clave, hf_id, args):
 
     # Si ya existe el adapter, saltamos
     if os.path.exists(os.path.join(adapter_dir, "adapter_config.json")):
-        log("  [OK] Adapter ya existe, saltando fine-tuning")
+        log("  Adapter ya existe, saltando fine-tuning")
         return True
 
     import torch
@@ -413,7 +387,7 @@ def finetune_modelo(clave, hf_id, args):
         data_collator=collator,
     )
 
-    # --- RESUME del Trainer si hay checkpoint previo --------
+    # RESUME del Trainer si hay checkpoint previo
     trainer_ckpt_dir = os.path.join(outdir, "trainer_ckpt")
     has_checkpoint = False
     if os.path.exists(trainer_ckpt_dir):
@@ -423,7 +397,7 @@ def finetune_modelo(clave, hf_id, args):
         except Exception:
             has_checkpoint = False
 
-    log(f"  [GO] Empezando entrenamiento{' (RESUME)' if has_checkpoint else ''}...")
+    log(f"  Empezando entrenamiento{' (RESUME)' if has_checkpoint else ''}...")
     t0 = time.time()
     try:
         if has_checkpoint:
@@ -431,18 +405,18 @@ def finetune_modelo(clave, hf_id, args):
         else:
             trainer.train()
     except Exception as e:
-        log(f"[X] Entrenamiento falló: {e}", "ERROR")
+        log(f"Entrenamiento falló: {e}", "ERROR")
         log(f"  Al relanzar, reanudará desde el último checkpoint del Trainer", "INFO")
         del model, tokenizer, trainer
         liberar_gpu()
         raise
     elapsed = (time.time() - t0) / 60
-    log(f"  [OK] Entrenamiento completado en {elapsed:.1f} min")
+    log(f"  Entrenamiento completado en {elapsed:.1f} min")
 
     # Guardar adapter LoRA y log
     model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
-    log(f"  [OK] Adapter guardado: {adapter_dir}")
+    log(f"  Adapter guardado: {adapter_dir}")
 
     # Extraer log de entrenamiento de Trainer
     history = trainer.state.log_history
@@ -473,9 +447,9 @@ def finetune_modelo(clave, hf_id, args):
         ax.grid(alpha=0.3)
         fig.savefig(curve_png, dpi=200, bbox_inches='tight')
         plt.close(fig)
-        log(f"  [OK] Curva guardada: {curve_png}")
+        log(f"  Curva guardada: {curve_png}")
     except Exception as e:
-        log(f"  [!] Error generando curva: {e}", "WARN")
+        log(f"  Error generando curva: {e}", "WARN")
 
     # Limpiar trainer checkpoints SOLO SI el adapter está bien guardado
     # (si el adapter no se guardó, mantenemos los checkpoints para recuperar)
@@ -486,16 +460,12 @@ def finetune_modelo(clave, hf_id, args):
         shutil.rmtree(trainer_ckpt_dir, ignore_errors=True)
         log(f"  Limpiados checkpoints intermedios de Trainer")
     elif not adapter_ok:
-        log(f"  [!] Adapter no encontrado, manteniendo checkpoints por seguridad", "WARN")
+        log(f"  Adapter no encontrado, manteniendo checkpoints por seguridad", "WARN")
 
     del model, tokenizer, trainer
     liberar_gpu()
     return True
 
-
-# =========================================================
-# INFERENCIA CON MODELO FINE-TUNEADO
-# =========================================================
 
 def _generar_inferencia_split(split_name, split_ids, df, clave, hf_id, args,
                                 model, tokenizer, is_gemma, is_qwen3, sistema):
@@ -540,7 +510,7 @@ def _generar_inferencia_split(split_name, split_ids, df, clave, hf_id, args,
                              'LLM_Generated', 'Time_per_row_seconds'])
 
     if n_done >= n_total:
-        log(f"  [{split_name}] [OK] Ya procesado por completo")
+        log(f"  [{split_name}] Ya procesado por completo")
         return True
 
     def generar(pregunta, max_tokens=256):
@@ -614,11 +584,11 @@ def inferencia_modelo_ft(clave, hf_id, args):
     adapter_dir = os.path.join(outdir, "lora_adapter")
 
     if not os.path.exists(os.path.join(adapter_dir, "adapter_config.json")):
-        log(f"  [X] No existe adapter, ¿se hizo el fine-tuning?", "ERROR")
+        log(f"  No existe adapter, ¿se hizo el fine-tuning?", "ERROR")
         return False
 
     if not os.path.exists(SPLITS_PATH):
-        log(f"  [X] No existe {SPLITS_PATH}", "ERROR")
+        log(f"  No existe {SPLITS_PATH}", "ERROR")
         return False
 
     with open(SPLITS_PATH, encoding='utf-8') as f:
@@ -671,16 +641,12 @@ def inferencia_modelo_ft(clave, hf_id, args):
             df_t = pd.read_csv(results_test)
             df_vt = pd.concat([df_v, df_t], ignore_index=True)
             df_vt.to_csv(results_vt, index=False)
-            log(f"  [OK] Combinado val+test: {len(df_vt)} filas -> {results_vt}")
+            log(f"  Combinado val+test: {len(df_vt)} filas -> {results_vt}")
         except Exception as e:
-            log(f"  [!] Error combinando val+test: {e}", "WARN")
+            log(f"  Error combinando val+test: {e}", "WARN")
 
     return ok_val and ok_test
 
-
-# =========================================================
-# INFERENCIA KELM CON MODELO FINE-TUNEADO
-# =========================================================
 
 def inferencia_modelo_ft_kelm(clave, hf_id, args):
     """Inferencia post-FT sobre KELM (sin splits, dataset completo)."""
@@ -692,12 +658,12 @@ def inferencia_modelo_ft_kelm(clave, hf_id, args):
     adapter_dir = os.path.join(outdir, "lora_adapter")
 
     if not os.path.exists(os.path.join(adapter_dir, "adapter_config.json")):
-        log(f"  [X] No existe adapter, ¿se hizo el fine-tuning?", "ERROR")
+        log(f"  No existe adapter, ¿se hizo el fine-tuning?", "ERROR")
         return False
 
     kelm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), KELM_CSV)
     if not os.path.exists(kelm_path):
-        log(f"  [X] No existe {kelm_path}", "ERROR")
+        log(f"  No existe {kelm_path}", "ERROR")
         return False
 
     import re
@@ -722,7 +688,7 @@ def inferencia_modelo_ft_kelm(clave, hf_id, args):
             df_done = pd.read_csv(results_csv, encoding='utf-8')
             len_actual = len(df_done)
             if len_actual >= n_total:
-                log(f"  [OK] KELM ya procesado por completo")
+                log(f"  KELM ya procesado por completo")
                 return True
             elif len_actual > 0:
                 n_done = len_actual - 1
@@ -804,7 +770,7 @@ def inferencia_modelo_ft_kelm(clave, hf_id, args):
         del model, base, tokenizer
         liberar_gpu()
 
-    log(f"  [OK] KELM inferencia completada: {results_csv}")
+    log(f"  KELM inferencia completada: {results_csv}")
     return True
 
 
@@ -820,10 +786,10 @@ def metricas_ft_kelm(clave, args):
     metricas_csv = os.path.join(outdir, f"metricas_por_fila_{nombre}_kelm.csv")
 
     if not os.path.exists(results_csv):
-        log(f"  [X] No existe {results_csv}", "WARN")
+        log(f"  No existe {results_csv}", "WARN")
         return False
     if os.path.exists(metricas_csv):
-        log(f"  [OK] Métricas KELM ya existen, saltando")
+        log(f"  Métricas KELM ya existen, saltando")
         return True
 
     import pandas as pd
@@ -912,21 +878,17 @@ def metricas_ft_kelm(clave, args):
         f.write(f"Tiempo medio (s),{round(sum(tiempos)/n, 4)}\n")
         f.write(f"CO2 total (g),{round(sum(co2s), 4)}\n")
 
-    log(f"  [OK] Guardado: {metricas_csv}")
+    log(f"  Guardado: {metricas_csv}")
     return True
 
-
-# =========================================================
-# MÉTRICAS POST-FT
-# =========================================================
 
 def _metricas_un_split(clave, split_name, results_csv, metricas_csv, nombre_legible):
     """Calcula métricas para un CSV de results y las guarda en otro CSV."""
     if not os.path.exists(results_csv):
-        log(f"  [{split_name}] [X] No existe {results_csv}", "WARN")
+        log(f"  [{split_name}] No existe {results_csv}", "WARN")
         return False
     if os.path.exists(metricas_csv):
-        log(f"  [{split_name}] [OK] Métricas ya existen, saltando")
+        log(f"  [{split_name}] Métricas ya existen, saltando")
         return True
 
     import pandas as pd
@@ -1003,7 +965,7 @@ def _metricas_un_split(clave, split_name, results_csv, metricas_csv, nombre_legi
         'Coste_USD': costes, 'CO2_gramos': co2s,
     })
     df_out.to_csv(metricas_csv, index=False)
-    log(f"  [{split_name}] [OK] Guardado: {metricas_csv}")
+    log(f"  [{split_name}] Guardado: {metricas_csv}")
 
     with open(metricas_csv, 'a', encoding='utf-8') as f:
         f.write(f"\n--- RESUMEN {nombre_legible} ({split_name}) ---\n")
@@ -1037,9 +999,6 @@ def metricas_ft(clave, args):
     return ok_total
 
 
-# =========================================================
-# MAIN
-# =========================================================
 def verificar_versiones():
     """Verifica versiones críticas (transformers, peft, etc)."""
     issues = []
@@ -1067,7 +1026,7 @@ def verificar_versiones():
         issues.append("datasets NO instalado. Ejecuta: pip install datasets")
 
     if issues:
-        for i in issues: log(f"  [!] {i}", "WARN")
+        for i in issues: log(f"  {i}", "WARN")
     return len(issues) == 0
 
 
@@ -1083,9 +1042,9 @@ def preparar_nltk():
                     nltk.download(pkg, quiet=True)
                     log(f"  NLTK: descargado '{pkg}'")
                 except Exception as e:
-                    log(f"  [!] NLTK: no pude descargar '{pkg}': {e}", "WARN")
+                    log(f"  NLTK: no pude descargar '{pkg}': {e}", "WARN")
     except Exception as e:
-        log(f"  [!] NLTK no disponible: {e}", "WARN")
+        log(f"  NLTK no disponible: {e}", "WARN")
 
 
 def main():
@@ -1101,7 +1060,7 @@ def main():
     run_kelm   = args.dataset in ("kelm", "all")
 
     if not os.path.exists(SPLITS_PATH):
-        log(f"[X] No existe {SPLITS_PATH}. Ejecuta primero hacer_splits.py", "ERROR")
+        log(f"No existe {SPLITS_PATH}. Ejecuta primero hacer_splits.py", "ERROR")
         return
 
     log("#" * 60)
@@ -1122,43 +1081,43 @@ def main():
             log(f"  Saltando {clave} (--skip)")
             continue
 
-        # --- Fine-tuning (siempre sobre teleco) ---
+        # Fine-tuning (siempre sobre teleco)
         try:
             ok = finetune_modelo(clave, hf_id, args)
             if ok: estado[clave]["finetuning"] = "completado"; guardar_estado(estado)
         except Exception as e:
-            log(f"[X] Fine-tuning {clave} falló: {e}", "ERROR")
+            log(f"Fine-tuning {clave} falló: {e}", "ERROR")
             import traceback; log(traceback.format_exc(), "ERROR")
             continue
 
-        # --- Inferencia + métricas TELECO ---
+        # Inferencia + métricas TELECO
         if run_teleco:
             try:
                 ok = inferencia_modelo_ft(clave, hf_id, args)
                 if ok: estado[clave]["inferencia"] = "completado"; guardar_estado(estado)
             except Exception as e:
-                log(f"[X] Inferencia FT teleco {clave} falló: {e}", "ERROR")
+                log(f"Inferencia FT teleco {clave} falló: {e}", "ERROR")
                 import traceback; log(traceback.format_exc(), "ERROR")
 
             try:
                 ok = metricas_ft(clave, args)
                 if ok: estado[clave]["metricas"] = "completado"; guardar_estado(estado)
             except Exception as e:
-                log(f"[X] Métricas FT teleco {clave} falló: {e}", "ERROR")
+                log(f"Métricas FT teleco {clave} falló: {e}", "ERROR")
                 import traceback; log(traceback.format_exc(), "ERROR")
 
-        # --- Inferencia + métricas KELM ---
+        # Inferencia + métricas KELM
         if run_kelm:
             try:
                 ok = inferencia_modelo_ft_kelm(clave, hf_id, args)
             except Exception as e:
-                log(f"[X] Inferencia FT kelm {clave} falló: {e}", "ERROR")
+                log(f"Inferencia FT kelm {clave} falló: {e}", "ERROR")
                 import traceback; log(traceback.format_exc(), "ERROR")
 
             try:
                 ok = metricas_ft_kelm(clave, args)
             except Exception as e:
-                log(f"[X] Métricas FT kelm {clave} falló: {e}", "ERROR")
+                log(f"Métricas FT kelm {clave} falló: {e}", "ERROR")
                 import traceback; log(traceback.format_exc(), "ERROR")
 
     log("#" * 60)

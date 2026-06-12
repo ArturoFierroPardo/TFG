@@ -1,7 +1,22 @@
+"""
+Fusiona los adaptadores LoRA con sus modelos base y exporta los modelos
+completos (merged) listos para inferencia o cuantizacion.
+
+Para cada Mini-SLM (Gemma 3 1B, Llama 3.2 1B, Qwen3 1.7B): carga el modelo base
+(local o descargandolo de Hugging Face), aplica el adaptador LoRA, lo fusiona con
+merge_and_unload y guarda el resultado en su carpeta -merged.
+
+Requisitos:
+    pip install transformers peft torch
+
+Uso:
+    python fusionar_lora.py
+"""
+
+import os
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
-import torch
-import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -32,11 +47,8 @@ MODELOS = [
 
 def fusionar(modelo):
     nombre = modelo["nombre"]
-    print(f"\n{'='*60}")
-    print(f"  {nombre}")
-    print(f"{'='*60}")
+    print(f"\n{nombre}")
 
-    # Si no existe el modelo base local, descargarlo de HF
     if not os.path.exists(modelo["base"]):
         print(f"Base no encontrada en {modelo['base']}")
         print(f"Descargando {modelo['hf_id']} de Hugging Face...")
@@ -66,16 +78,14 @@ def fusionar(modelo):
     merged.save_pretrained(modelo["output"])
     tok.save_pretrained(modelo["output"])
 
-    # Liberar memoria
     del merged, base, tok
-    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
-    print(f"{nombre} fusionado OK.")
+    print(f"{nombre} fusionado correctamente.")
 
 
 if __name__ == "__main__":
     for m in MODELOS:
         fusionar(m)
-    print(f"\n{'='*60}")
-    print("  Los 3 modelos fusionados correctamente.")
-    print(f"{'='*60}")
+    print("\nLos 3 modelos se han fusionado correctamente.")

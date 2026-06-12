@@ -1,30 +1,21 @@
-# pip install datasets openai tqdm pandas evaluate rouge_score bert_score sacrebleu nltk tiktoken "datasets<3.0.0"
 """
-Pipeline Mini-SLMs sobre 3 BBDD públicas (totto, webnlg, kelm).
+Inferencia y evaluacion de Mini-SLMs (Llama 3.2 1B, Gemma 3 1B, Qwen3 1.7B) sobre
+los benchmarks ToTTo, WebNLG y KELM. Llama se sirve por OpenRouter y Gemma/Qwen
+por Together AI. En Qwen3 se desactiva el modo de razonamiento (enable_thinking).
 
-Procesa los 3 Mini-SLMs (1-2B parámetros) sobre las 3 BBDD del benchmark:
-  - Llama 3.2 1B Instruct (OpenRouter)
-  - Gemma 3 1B IT          (Together)
-  - Qwen 3 1.7B            (Together)
+Calcula metricas globales y por fila (ROUGE-L, METEOR, BLEU, BERTScore), tiempo,
+tokens, coste y CO2. Procesa en paralelo, reanuda ejecuciones interrumpidas y
+dispone de un modo --fix para reprocesar errores.
 
-Saca métricas por fila para boxplots:
-  - ROUGE-L, METEOR, BLEU, BERTScore
-  - Tiempo por fila
-  - Tokens input/output
-  - Coste USD por fila
-  - CO2 (gramos) por fila
+Las claves se leen de las variables de entorno OPENROUTER_API_KEY y TOGETHER_API_KEY.
 
-ROBUSTO: Multihilo (20 hilos), resume anti-duplicados, modo --fix de errores.
+Requisitos:
+    pip install datasets openai tqdm pandas evaluate rouge_score bert_score sacrebleu nltk tiktoken "datasets<3.0.0"
 
 Uso:
-    python pipeline_minislm_3bbdd.py --dataset totto  --model llama
-    python pipeline_minislm_3bbdd.py --dataset webnlg --model gemma
-    python pipeline_minislm_3bbdd.py --dataset kelm   --model qwen
-    python pipeline_minislm_3bbdd.py --dataset totto  --model llama --limit 100
-    python pipeline_minislm_3bbdd.py --dataset totto  --model llama --fix
-
-    # Lanzar TODAS las combinaciones (9 = 3 modelos x 3 bbdd):
-    python pipeline_minislm_3bbdd.py --all
+    python pipelineminiSLM.py --dataset totto --model llama --evaluar
+    python pipelineminiSLM.py --dataset kelm --model qwen --limit 100
+    python pipelineminiSLM.py --all
 """
 
 import sys
@@ -63,20 +54,11 @@ except ImportError:
         return max(1, len(text or "") // 4)
 
 
-# =========================================================
-# CANDADO DE SEGURIDAD PARA MULTIHILO
-# =========================================================
 csv_lock = threading.Lock()
 
-# =========================================================
-# API KEYS  (PEGA AQUÍ TUS CLAVES)
-# =========================================================
-TOGETHER_API_KEY  = "REDACTED"
-OPENROUTER_API_KEY = "REDACTED"
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-# =========================================================
-# CONFIGURACIÓN DE DATASETS Y MODELOS
-# =========================================================
 DATASETS_CONFIG = {
     "totto": {
         "hf_name":    "totto",
@@ -160,9 +142,6 @@ CO2_POR_KWH     = 400.0   # gramos CO2 por kWh (media UE)
 MAX_HILOS    = 20
 BATCH_BERT   = 1000
 
-# =========================================================
-# EXTRACTORES POR DATASET
-# =========================================================
 def extraer_totto(item):
     titulo = item.get("table_page_title", "")
     seccion = item.get("table_section_title", "")
@@ -211,11 +190,8 @@ EXTRACTORES = {
 }
 
 
-# =========================================================
-# LIMPIEZA FINAL DEL CSV
-# =========================================================
 def limpiar_csv_final(archivo, total_filas):
-    print(f"\n[CLEAN] Limpiando {archivo}...")
+    print(f"\nLimpiando {archivo}...")
     with open(archivo, 'r', encoding='utf-8') as f:
         contenido = f.read()
     reader = csv.reader(StringIO(contenido))
@@ -256,18 +232,15 @@ def limpiar_csv_final(archivo, total_filas):
 
     errores_restantes = sum(1 for d in datos if d[2].startswith("Error:"))
     total_lineas = 1 + len(datos) + len(metricas)
-    print(f"  [OK] {len(datos)} datos ({errores_restantes} errores) + {len(metricas)} métricas + 1 cabecera = {total_lineas} líneas")
+    print(f"  {len(datos)} datos ({errores_restantes} errores) + {len(metricas)} métricas + 1 cabecera = {total_lineas} líneas")
 
 
-# =========================================================
-# PIPELINE PRINCIPAL
-# =========================================================
 def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
     api_key = get_api_key(model_key)
     base_url = get_base_url(model_key)
 
-    if not api_key or "PEGA_AQUI" in api_key:
-        print(f"[X] API key no configurada para {model_key} (proveedor: {PROVIDER_CONFIG[model_key]['api_key_var']})")
+    if not api_key:
+        print(f"API key no configurada para {model_key} (proveedor: {PROVIDER_CONFIG[model_key]['api_key_var']})")
         print(f"   Edita la cabecera de este archivo con tus keys reales.")
         return
 
@@ -277,7 +250,6 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
     extraer = EXTRACTORES[dataset_key]
     prompt = PROMPTS[dataset_key]
 
-    # Nombres bonitos para cada dataset
     dataset_names = {
         "totto":  "totto",
         "webnlg": "webNLG",
@@ -305,7 +277,7 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
         metrica_bleu   = evaluate.load('bleu')
         metrica_bert   = evaluate.load('bertscore')
     else:
-        print("\n[INFO] Modo solo inferencia (sin --evaluar)")
+        print("\nModo solo inferencia (sin --evaluar)")
 
     print(f"\nCargando dataset: {ds_config['hf_name']}...")
     if ds_config['hf_name'] == 'local_csv':
@@ -324,7 +296,7 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
                 csv_real = p
                 break
         if not csv_real:
-            print(f"[X] No se encontró {csv_path}")
+            print(f"No se encontró {csv_path}")
             return
         print(f"  Leyendo: {csv_real}")
         df_kelm = pd.read_csv(csv_real)
@@ -341,14 +313,12 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
 
     client = OpenAI(base_url=base_url, api_key=api_key)
 
-    # =========================================================
     # RESUME: cargar CSV previo
-    # =========================================================
     cabecera = ["Structured_Data", "Human_Reference", "LLM_Generated", "Time_per_row_seconds"]
     dict_procesados = {}
 
     if os.path.exists(output_name):
-        print(f"\n[READ] CSV previo encontrado, retomando: {output_name}")
+        print(f"\nCSV previo encontrado, retomando: {output_name}")
         with open(output_name, 'r', encoding='utf-8') as f:
             contenido = f.read()
         reader = csv.reader(StringIO(contenido))
@@ -436,9 +406,6 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
 
         filas_procesadas_total += 1
 
-    # =========================================================
-    # FUNCIÓN QUE EJECUTARÁ CADA HILO
-    # =========================================================
     # Detectar Qwen 3 para desactivar thinking
     def es_qwen3(mid):
         return "qwen3" in mid.lower() or "Qwen3" in mid
@@ -463,7 +430,6 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
             {"role": "user",   "content": user_content}
         ]
 
-        # Qwen 3: también extra_body como doble seguridad
         kwargs_extra = {}
         if es_qwen3(model_id):
             kwargs_extra["extra_body"] = {"enable_thinking": False}
@@ -481,22 +447,20 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
                     temperature=0.1,
                     **kwargs_extra,
                 )
-                
+
                 content = response.choices[0].message.content
                 generated_text = content.strip() if content else "Error: modelo devolvio respuesta vacia"
-                # Limpiar <think> por si acaso (doble seguridad)
                 if "<think>" in generated_text:
                     generated_text = limpiar_think(generated_text)
                 generated_text = generated_text.replace('\n', ' ').replace('\r', '')
                 if not generated_text:
                     generated_text = "Error: modelo solo genero thinking sin respuesta"
-                
-                # ¡Sin waits ni pausas artificiales aquí!
+
                 break
             except Exception as e:
                 err_str = str(e).lower()
                 generated_text = f"Error: {str(e)[:200]}"
-                
+
                 if "rate" in err_str or "429" in err_str:
                     time.sleep(backoff_sec)
                     backoff_sec = min(backoff_sec * 2, 30)
@@ -507,7 +471,6 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
         end_row_time = time.time()
         row_time = round(end_row_time - start_row_time, 4)
 
-        # GUARDADO PROTEGIDO POR EL CANDADO
         with csv_lock:
             nueva_fila = pd.DataFrame([{
                 "Structured_Data":      datos_estructurados,
@@ -518,11 +481,8 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
             nueva_fila.to_csv(output_name, mode='a', header=False, index=False)
 
         return generated_text, referencia, datos_estructurados, row_time
-    # =========================================================
-    # EJECUCIÓN CONCURRENTE (MULTIHILO)
-    # =========================================================
     if len(items_a_procesar) > 0:
-        print(f"\n[GO] Lanzando {MAX_HILOS} hilos para {len(items_a_procesar)} filas restantes...")
+        print(f"\nLanzando {MAX_HILOS} hilos para {len(items_a_procesar)} filas restantes...")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_HILOS) as executor:
             resultados = list(tqdm(
@@ -538,14 +498,12 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
                 datos_validos.append(datos)
             tiempos.append(r_time)
     else:
-        print("\n[OK] Todas las filas ya estaban procesadas.")
+        print("\nTodas las filas ya estaban procesadas.")
 
     total_time = sum(tiempos)
     avg_time   = total_time / len(tiempos) if tiempos else 0
 
-    # =========================================================
     # MÉTRICAS (solo si --evaluar)
-    # =========================================================
     if evaluar and len(preds_validas) > 0:
         print(f"\nEvaluando las {len(preds_validas)} respuestas válidas...")
 
@@ -553,15 +511,15 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
         try:
             rouge_score = round(metrica_rouge.compute(predictions=preds_validas, references=refs_validas)['rougeL'], 4)
         except Exception as e:
-            print(f"[!] ROUGE global falló: {e}"); rouge_score = 0.0
+            print(f"ROUGE global falló: {e}"); rouge_score = 0.0
         try:
             meteor_score = round(metrica_meteor.compute(predictions=preds_validas, references=refs_validas)['meteor'], 4)
         except Exception as e:
-            print(f"[!] METEOR global falló: {e}"); meteor_score = 0.0
+            print(f"METEOR global falló: {e}"); meteor_score = 0.0
         try:
             bleu_score = round(metrica_bleu.compute(predictions=preds_validas, references=[[r] for r in refs_validas])['bleu'], 4)
         except Exception as e:
-            print(f"[!] BLEU global falló: {e}"); bleu_score = 0.0
+            print(f"BLEU global falló: {e}"); bleu_score = 0.0
 
         # BERTScore global en batches
         print(f"Calculando BERTScore en batches de {BATCH_BERT}...")
@@ -579,7 +537,7 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
                 )
                 all_f1.extend(res['f1'])
             except Exception as e:
-                print(f"[!] BERTScore batch {i} falló: {e}")
+                print(f"BERTScore batch {i} falló: {e}")
                 all_f1.extend([0.0] * len(batch_preds))
 
         bert_score = round(sum(all_f1) / len(all_f1), 4) if all_f1 else 0.0
@@ -641,7 +599,7 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
             'Coste_USD':     costes,
             'CO2_gramos':    co2s,
         }).to_csv(metricas_fila_name, index=False)
-        print(f"[OK] Métricas por fila guardadas: {metricas_fila_name}")
+        print(f"Métricas por fila guardadas: {metricas_fila_name}")
 
         # Totales agregados
         coste_total = sum(costes)
@@ -677,23 +635,21 @@ def run_pipeline(dataset_key, model_key, limit=None, evaluar=False):
         print(f"Errores: {errores}")
         print(f"Tiempo total: {total_time:.2f}s | Media: {avg_time:.4f}s/fila")
         if not evaluar:
-            print(f"[INFO] Usa --evaluar para calcular métricas")
+            print(f"Usa --evaluar para calcular métricas")
         print(f"{'='*60}")
 
     # Limpieza final
     limpiar_csv_final(output_name, total_filas)
 
 
-# =========================================================
 # MODO FIX: arregla errores
-# =========================================================
 def fix_errors(dataset_key, model_key, limit=None):
     """Reprocesa SOLO las filas con Error: del CSV existente."""
     api_key = get_api_key(model_key)
     base_url = get_base_url(model_key)
 
-    if not api_key or "PEGA_AQUI" in api_key:
-        print(f"[X] API key no configurada.")
+    if not api_key:
+        print(f"API key no configurada.")
         return
 
     ds_config = DATASETS_CONFIG[dataset_key]
@@ -710,16 +666,16 @@ def fix_errors(dataset_key, model_key, limit=None):
         output_name = f"results_{ds_label}_{nombre_modelo}.csv"
 
     if not os.path.exists(output_name):
-        print(f"[X] No existe {output_name}. Lanza primero el modo normal.")
+        print(f"No existe {output_name}. Lanza primero el modo normal.")
         return
 
-    print(f"\n[FIX] Modo arreglar errores: {output_name}")
+    print(f"\nModo arreglar errores: {output_name}")
     df = pd.read_csv(output_name)
     # Filtrar las filas con error
     df_err = df[df['LLM_Generated'].astype(str).str.startswith('Error:')].copy()
     print(f"  Filas con error a reprocesar: {len(df_err)}")
     if len(df_err) == 0:
-        print(f"  [OK] No hay errores.")
+        print(f"  No hay errores.")
         return
 
     client = OpenAI(base_url=base_url, api_key=api_key)
@@ -774,12 +730,9 @@ def fix_errors(dataset_key, model_key, limit=None):
             df.at[idx, 'Time_per_row_seconds'] = elapsed
 
     df.to_csv(output_name, index=False)
-    print(f"[OK] CSV actualizado. Relanza el pipeline normal para recalcular métricas.")
+    print(f"CSV actualizado. Relanza el pipeline normal para recalcular métricas.")
 
 
-# =========================================================
-# CLI
-# =========================================================
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", choices=["totto", "webnlg", "kelm"],
@@ -802,7 +755,7 @@ def main():
             (ds, m) for ds in ["totto", "webnlg", "kelm"]
                     for m in ["llama", "gemma", "qwen"]
         ]
-        print(f"[GO] Lanzando {len(combinaciones)} combinaciones (3 bbdd x 3 modelos):")
+        print(f"Lanzando {len(combinaciones)} combinaciones (3 bbdd x 3 modelos):")
         for ds, m in combinaciones:
             print(f"  - {NOMBRES_LEGIBLES[m]} en {ds}")
         print()
@@ -810,13 +763,13 @@ def main():
             try:
                 run_pipeline(ds, m, args.limit, evaluar=args.evaluar)
             except KeyboardInterrupt:
-                print("\n[!] Interrumpido")
+                print("\nInterrumpido")
                 raise
             except Exception as e:
-                print(f"[X] Fallo en {m}/{ds}: {e}. Continuando...")
+                print(f"Fallo en {m}/{ds}: {e}. Continuando...")
                 import traceback
                 traceback.print_exc()
-        print("\n[OK] Todas las combinaciones procesadas")
+        print("\nTodas las combinaciones procesadas")
         return
 
     if not args.dataset or not args.model:

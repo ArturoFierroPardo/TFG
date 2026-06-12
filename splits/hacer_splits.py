@@ -1,18 +1,10 @@
 """
-Crea el split del dataset POR SUBTEMA para evitar data leakage.
+Genera el split del dataset por subtema para evitar data leakage.
 
-Lee dataset_teleco.csv y produce splits/splits_por_subtema.json con:
-  - train_ids: lista de IDs en train
-  - val_ids:   lista de IDs en val
-  - test_ids:  lista de IDs en test
-
-CARACTERÍSTICA CLAVE: cada subtema completo se asigna a UN SOLO split.
-Ningún subtema aparece en dos splits a la vez. Esto garantiza:
-  - El modelo no ve preguntas/respuestas similares en train y val
-  - La evaluación es honesta (no hay leakage de terminología)
-
-División: 70% train / 15% val / 15% test (por subtemas, no por filas)
-La proporción final por filas será aproximadamente la misma.
+Lee dataset_teleco.csv y produce splits/splits_por_subtema.json con las listas
+train_ids, val_ids y test_ids. Cada subtema se asigna por completo a un unico
+split (70/15/15), estratificado por asignatura, de modo que ningun subtema
+aparece en mas de un split.
 
 Uso:
     python hacer_splits.py
@@ -50,22 +42,22 @@ def main():
 
     test_ratio = 1.0 - args.train_ratio - args.val_ratio
     if test_ratio <= 0:
-        print("[X] Las ratios train+val deben sumar menos de 1.0")
+        print("Las ratios train+val deben sumar menos de 1.0")
         return
 
     if not os.path.exists(args.csv):
-        print(f"[X] No existe {args.csv}")
+        print(f"No existe {args.csv}")
         return
 
     os.makedirs(args.outdir, exist_ok=True)
 
-    # --- Leer dataset y agrupar por subtema -----------------
-    print(f"[READ] Leyendo {args.csv}...")
+    # Leer dataset y agrupar por subtema
+    print(f"Leyendo {args.csv}...")
     with open(args.csv, encoding='utf-8') as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
-    print(f"[OK] {len(rows)} filas cargadas")
+    print(f"{len(rows)} filas cargadas")
 
     # Agrupar IDs por (asignatura, tema, subtema)
     # Esto identifica de forma única cada subtema
@@ -74,18 +66,18 @@ def main():
         key = (row['asignatura'], row['tema'], row['subtema'])
         grupos[key].append(int(row['id']))
 
-    print(f"[OK] {len(grupos)} subtemas únicos identificados")
+    print(f"{len(grupos)} subtemas únicos identificados")
 
-    # --- Estratificar por asignatura -------------------------
+    # Estratificar por asignatura
     # Para que cada asignatura tenga proporcionalmente split 70/15/15
     asig_to_subtemas = defaultdict(list)
     for key in grupos:
         asignatura = key[0]
         asig_to_subtemas[asignatura].append(key)
 
-    print(f"[OK] {len(asig_to_subtemas)} asignaturas")
+    print(f"{len(asig_to_subtemas)} asignaturas")
 
-    # --- Asignar subtemas a splits --------------------------
+    # Asignar subtemas a splits
     rng = random.Random(SEED)
     train_subtemas = []
     val_subtemas   = []
@@ -117,12 +109,12 @@ def main():
         val_subtemas.extend(  subtemas_shuffled[n_train:n_train+n_val])
         test_subtemas.extend( subtemas_shuffled[n_train+n_val:])
 
-    # --- Convertir subtemas a IDs -----------------------------
+    # Convertir subtemas a IDs
     train_ids = sorted([id_ for st in train_subtemas for id_ in grupos[st]])
     val_ids   = sorted([id_ for st in val_subtemas   for id_ in grupos[st]])
     test_ids  = sorted([id_ for st in test_subtemas  for id_ in grupos[st]])
 
-    # --- Verificación de no-solapamiento --------------------
+    # Verificación de no-solapamiento
     train_set = set(train_ids)
     val_set   = set(val_ids)
     test_set  = set(test_ids)
@@ -132,25 +124,25 @@ def main():
     overlap_vt = val_set & test_set
 
     if overlap_tv or overlap_tt or overlap_vt:
-        print(f"[X] ERROR: Hay solapamiento entre splits!")
+        print(f"ERROR: Hay solapamiento entre splits!")
         print(f"  train AND val:  {len(overlap_tv)}")
         print(f"  train AND test: {len(overlap_tt)}")
         print(f"  val AND test:   {len(overlap_vt)}")
         return
     else:
-        print(f"[OK] Cero solapamiento entre splits (verificado)")
+        print(f"Cero solapamiento entre splits (verificado)")
 
     # Verificar también que los subtemas no solapan
     train_st = set(train_subtemas)
     val_st   = set(val_subtemas)
     test_st  = set(test_subtemas)
     if train_st & val_st or train_st & test_st or val_st & test_st:
-        print(f"[X] ERROR: Hay subtemas en múltiples splits!")
+        print(f"ERROR: Hay subtemas en múltiples splits!")
         return
     else:
-        print(f"[OK] Cero solapamiento de subtemas entre splits")
+        print(f"Cero solapamiento de subtemas entre splits")
 
-    # --- Resumen ---------------------------------------------
+    # Resumen
     n_total = len(rows)
     print(f"\n{'='*55}")
     print(f"  RESULTADO DEL SPLIT POR SUBTEMA")
@@ -167,7 +159,7 @@ def main():
     print(f"    Total: {n_total:>6}")
     print(f"{'='*55}")
 
-    # --- Guardar JSON ----------------------------------------
+    # Guardar JSON
     out_path = os.path.join(args.outdir, "splits_por_subtema.json")
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump({
@@ -189,7 +181,7 @@ def main():
             "test_ids":      test_ids,
         }, f, indent=2)
 
-    print(f"\n[OK] Guardado: {out_path}")
+    print(f"\nGuardado: {out_path}")
     print(f"  Tamaño: {os.path.getsize(out_path)/1024:.0f} KB")
 
 

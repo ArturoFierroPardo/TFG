@@ -1,26 +1,21 @@
 """
-GAN Generativa de Texto para Q&A de Telecomunicaciones
-Arquitectura: Conditional SeqGAN con Gumbel-Softmax
+GAN de generacion de texto para Q&A de Telecomunicaciones.
+Arquitectura: SeqGAN condicional (encoder-decoder Transformer) con Gumbel-Softmax.
 
-Prueba (CPU):  Generador ~23M params  | Discriminador ~3M params
-Final (GPU):   Generador ~430M params  | Discriminador ~100M params
+Tamanos aproximados:
+    prueba (CPU):  generador ~23M params,  discriminador ~3M params
+    final  (GPU):  generador ~430M params, discriminador ~100M params
 
-Lee el dataset desde dataset_teleco.csv (generado por reestructurar_dataset.py).
+Lee el dataset desde dataset_teleco.csv. El split por subtema se pasa con
+--splits-json (recomendado, evita data leakage).
 
-Uso:
+Requisitos:
     pip install sentencepiece tqdm torch nltk rouge-score bert-score tiktoken
 
-    # Entrenar prueba CPU (asignatura pequeña)
-    python gan_teleco_v3.py --modo prueba --asignatura "Informática para la Ingeniería" --epochs 20
-
-    # Entrenar completo GPU (todo el dataset)
-    python gan_teleco_v3.py --modo final --epochs 100
-
-    # Generar respuesta
-    python gan_teleco_v3.py --generar --pregunta "¿Qué es una función recursiva?"
-
-    # Evaluar sobre el test set con métricas
-    python gan_teleco_v3.py --evaluar --asignatura "Informática para la Ingeniería"
+Uso:
+    python gan_teleco_v3.py --modo final --epochs 100 --splits-json splits_por_subtema.json
+    python gan_teleco_v3.py --generar --pregunta "Que es una funcion recursiva?"
+    python gan_teleco_v3.py --evaluar --splits-json splits_por_subtema.json
 """
 
 import sys
@@ -42,9 +37,6 @@ import csv
 import sentencepiece as spm
 from tqdm import tqdm
 
-# =========================================================
-# CONFIGURACIÓN
-# =========================================================
 
 DATASET_CSV = "dataset_teleco.csv"
 SPM_PREFIX  = "gan_tokenizer"
@@ -110,13 +102,10 @@ CONFIGS = {
     },
 }
 
-# =========================================================
-# PASO 1 - LEER DATASET DESDE CSV Y SPLIT
-# =========================================================
 
 def leer_dataset(csv_path, asignatura_filtro=None):
     """Lee dataset_teleco.csv. Devuelve lista de (id, pregunta, respuesta)."""
-    print(f"[READ] Cargando dataset: {csv_path}...")
+    print(f"Cargando dataset: {csv_path}...")
 
     pares = []
     with open(csv_path, encoding='utf-8') as f:
@@ -129,10 +118,10 @@ def leer_dataset(csv_path, asignatura_filtro=None):
             if pregunta and respuesta:
                 pares.append((int(row['id']), pregunta, respuesta))
 
-    print(f"[OK] {len(pares)} pares cargados"
+    print(f"{len(pares)} pares cargados"
           + (f" de '{asignatura_filtro}'" if asignatura_filtro else ""))
     if not pares and asignatura_filtro:
-        print(f"  [!] No se encontraron pares para '{asignatura_filtro}'.")
+        print(f"  No se encontraron pares para '{asignatura_filtro}'.")
         print(f"     Comprueba el nombre exacto (con tildes y mayúsculas).")
     return pares
 
@@ -148,7 +137,7 @@ def split_dataset_externo(pares, splits_json_path):
     Returns:
         train, val, test: listas de (pregunta, respuesta) [sin id, para QADataset].
     """
-    print(f"[DIR] Cargando split por subtema: {splits_json_path}")
+    print(f"Cargando split por subtema: {splits_json_path}")
     with open(splits_json_path, encoding='utf-8') as f:
         splits = json.load(f)
 
@@ -165,7 +154,7 @@ def split_dataset_externo(pares, splits_json_path):
         elif id_ in test_ids:
             test.append((preg, resp))
 
-    print(f"[OK] Split por subtema -> train={len(train)} | val={len(val)} | test={len(test)}")
+    print(f"Split por subtema -> train={len(train)} | val={len(val)} | test={len(test)}")
     return train, val, test
 
 
@@ -210,18 +199,14 @@ def split_dataset(pares, train_ratio=0.7, val_ratio=0.15, seed=SEED):
             "test_idx":  test_idx,
         }, f, indent=2)
 
-    print(f"[!] Split aleatorio 70/15/15 (LEGACY) -> train={len(train)} | val={len(val)} | test={len(test)}")
+    print(f"Split aleatorio 70/15/15 (LEGACY) -> train={len(train)} | val={len(val)} | test={len(test)}")
     print(f"   ATENCIÓN: posible data leakage. Usa --splits-json para split por subtema.")
     return train, val, test
 
 
-# =========================================================
-# PASO 2 - TOKENIZADOR BPE
-# =========================================================
-
 def entrenar_tokenizador(pares, vocab_size, prefix):
     corpus_file = f"{prefix}_corpus.txt"
-    print(f"\n[TOK] Entrenando tokenizador BPE (vocab={vocab_size})...")
+    print(f"\nEntrenando tokenizador BPE (vocab={vocab_size})...")
 
     with open(corpus_file, 'w', encoding='utf-8') as f:
         for pregunta, respuesta in pares:
@@ -241,7 +226,7 @@ def entrenar_tokenizador(pares, vocab_size, prefix):
         model_type="bpe",
     )
     os.remove(corpus_file)
-    print(f"[OK] Tokenizador guardado: {prefix}.model")
+    print(f"Tokenizador guardado: {prefix}.model")
 
 def cargar_tokenizador(prefix):
     sp = spm.SentencePieceProcessor()
@@ -252,9 +237,6 @@ def cargar_tokenizador(prefix):
                          f"Borra {prefix}.model y reentrena.")
     return sp
 
-# =========================================================
-# PASO 3 - DATASET PYTORCH
-# =========================================================
 
 class QADataset(Dataset):
     def __init__(self, pares, sp, max_seq_len):
@@ -295,9 +277,6 @@ def collate_fn(batch, max_seq_len):
 
     return enc_pad, din_pad, dout_pad
 
-# =========================================================
-# PASO 4 - GENERADOR
-# =========================================================
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=512, dropout=0.1):
@@ -410,9 +389,6 @@ class Generador(nn.Module):
         tokens = dec_ids[0, 1:].tolist()
         return sp.decode(tokens)
 
-# =========================================================
-# PASO 5 - DISCRIMINADOR
-# =========================================================
 
 class Discriminador(nn.Module):
     def __init__(self, cfg):
@@ -477,9 +453,6 @@ class Discriminador(nn.Module):
         pooled  = self.mean_pool(enc_out, pad_concat)
         return self.classifier(pooled)
 
-# =========================================================
-# PASO 6 - ENTRENAMIENTO CON VALIDACIÓN
-# =========================================================
 
 def hacer_pad_mask(ids):
     return ids == PAD_ID
@@ -519,19 +492,19 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
                 del test_tensor
                 cuda_funciona = True
         except Exception as e:
-            print(f"[!] CUDA no funciona realmente: {str(e)[:120]}")
+            print(f"CUDA no funciona realmente: {str(e)[:120]}")
             cuda_funciona = False
 
         if cuda_funciona:
             device = torch.device("cuda")
         else:
-            print(f"[!] Cambiando a CPU (entrenamiento será MUCHO más lento)")
+            print(f"Cambiando a CPU (entrenamiento será MUCHO más lento)")
             device = torch.device("cpu")
             cfg = dict(cfg)
             cfg["device"] = "cpu"
     else:
         device = torch.device(requested_device)
-    print(f"\n[GPU]  Device: {device}")
+    print(f"\nDevice: {device}")
 
     train_ds = QADataset(train_pares, sp, cfg["max_seq_len"])
     val_ds   = QADataset(val_pares,   sp, cfg["max_seq_len"])
@@ -543,15 +516,15 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
         val_ds, batch_size=cfg["batch_size"], shuffle=False,
         collate_fn=lambda b: collate_fn(b, cfg["max_seq_len"]))
 
-    print(f"[OK] Train: {len(train_ds)} | Val: {len(val_ds)} | "
+    print(f"Train: {len(train_ds)} | Val: {len(val_ds)} | "
           f"{len(train_loader)} batches/época")
 
     gen = Generador(cfg).to(device)
     dis = Discriminador(cfg).to(device)
 
-    print(f"[OK] Generador:     {contar_params(gen):.1f}M params")
-    print(f"[OK] Discriminador: {contar_params(dis):.1f}M params")
-    print(f"[OK] Total:         {contar_params(gen)+contar_params(dis):.1f}M params")
+    print(f"Generador:     {contar_params(gen):.1f}M params")
+    print(f"Discriminador: {contar_params(dis):.1f}M params")
+    print(f"Total:         {contar_params(gen)+contar_params(dis):.1f}M params")
 
     opt_gen = torch.optim.AdamW(gen.parameters(), lr=cfg["lr_gen"],
                                  betas=(0.9, 0.98), weight_decay=0.01)
@@ -570,9 +543,7 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
     bce = nn.BCEWithLogitsLoss()
     ce  = nn.CrossEntropyLoss(ignore_index=PAD_ID)
 
-    # =====================================================
     # RESUME - cargar checkpoint si existe
-    # =====================================================
     RESUME_CKPT = "gan_train_state.pt"   # checkpoint completo del entrenamiento
     log = []
     best_val = float('inf')
@@ -580,7 +551,7 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
 
     if os.path.exists(RESUME_CKPT):
         try:
-            print(f"\n[DIR] Encontrado checkpoint de entrenamiento: {RESUME_CKPT}")
+            print(f"\nEncontrado checkpoint de entrenamiento: {RESUME_CKPT}")
             ckpt = torch.load(RESUME_CKPT, map_location=device, weights_only=False)
             gen.load_state_dict(ckpt["gen_state"])
             dis.load_state_dict(ckpt["dis_state"])
@@ -591,18 +562,18 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
             epoch_inicial = ckpt["epoch"] + 1
             best_val = ckpt["best_val"]
             log = ckpt.get("log", [])
-            print(f"[OK] Resumiendo desde época {epoch_inicial} (best_val={best_val:.4f})")
+            print(f"Resumiendo desde época {epoch_inicial} (best_val={best_val:.4f})")
         except Exception as e:
-            print(f"[!] Error cargando checkpoint: {e}. Empezando desde cero.")
+            print(f"Error cargando checkpoint: {e}. Empezando desde cero.")
             epoch_inicial = 1
             best_val = float('inf')
             log = []
 
     if epoch_inicial > epochs:
-        print(f"[OK] Entrenamiento ya completado ({epoch_inicial-1}/{epochs} épocas)")
+        print(f"Entrenamiento ya completado ({epoch_inicial-1}/{epochs} épocas)")
         return
 
-    print(f"\n[GO] Entrenando {epochs} épocas (desde {epoch_inicial})\n")
+    print(f"\nEntrenando {epochs} épocas (desde {epoch_inicial})\n")
 
     for epoch in range(epoch_inicial, epochs + 1):
         gen.train()
@@ -628,7 +599,6 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
             real_lbl = torch.ones(B,  1, device=device)
             fake_lbl = torch.zeros(B, 1, device=device)
 
-            # -- DISCRIMINADOR ------------------------------------
             opt_dis.zero_grad()
 
             pred_real = dis(src_ids, src_pad,
@@ -648,7 +618,6 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
             opt_dis.step()
             sched_dis.step()
 
-            # -- GENERADOR ----------------------------------------
             opt_gen.zero_grad()
 
             logits, gumbel = gen(src_ids, dec_in, tau=cfg["gumbel_tau"],
@@ -706,7 +675,7 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
                         "state_dict": gen.state_dict()}, GEN_CKPT)
             torch.save({"epoch": epoch, "cfg": cfg,
                         "state_dict": dis.state_dict()}, DIS_CKPT)
-            print(f"  [SAVE] Mejor val_lm={val_lm:.4f} -> checkpoint guardado")
+            print(f"  Mejor val_lm={val_lm:.4f} -> checkpoint guardado")
 
         # Checkpoint completo del entrenamiento (para resume si se cae)
         torch.save({
@@ -730,24 +699,21 @@ def entrenar(cfg, train_pares, val_pares, sp, epochs):
                 device=device)
             with torch.no_grad():
                 resp = gen.generar(src_t, sp, max_new_tokens=80)
-            print(f"\n  [NOTE] Muestra época {epoch}:")
+            print(f"\n  Muestra época {epoch}:")
             print(f"     P: {muestra[:80]}")
             print(f"     R: {resp[:150]}\n")
 
-    print(f"\n[OK] Entrenamiento completado. Mejor val_lm={best_val:.4f}")
+    print(f"\nEntrenamiento completado. Mejor val_lm={best_val:.4f}")
     print(f"  Log: {LOG_FILE}")
 
-# =========================================================
-# PASO 7 - EVALUACIÓN CON MÉTRICAS, TIEMPO, COSTE Y CO2
-# =========================================================
 # Esquema alineado con costes.py del TFG:
-#   - Tokens contados con tiktoken cl100k_base
-#   - Coste = tok_in x precio_in + tok_out x precio_out
-#   - CO2   = (tok_in + tok_out) x kwh_token x CO2_POR_KWH
+# Tokens contados con tiktoken cl100k_base
+# Coste = tok_in x precio_in + tok_out x precio_out
+# CO2   = (tok_in + tok_out) x kwh_token x CO2_POR_KWH
 # Para la GAN (modelo local entrenado por nosotros):
-#   - precio_in = precio_out = 0  (no hay tarifa de API)
-#   - kwh_token estimado proporcional al tamaño (~430M params)
-#   - TOKENS_PROMPT_SISTEMA = 0  (la GAN no usa prompt de sistema)
+# precio_in = precio_out = 0  (no hay tarifa de API)
+# kwh_token estimado proporcional al tamaño (~430M params)
+# TOKENS_PROMPT_SISTEMA = 0  (la GAN no usa prompt de sistema)
 
 GAN_PRECIO_INPUT      = 0.0          # $/token entrada (modelo local)
 GAN_PRECIO_OUTPUT     = 0.0          # $/token salida  (modelo local)
@@ -787,12 +753,12 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
             except LookupError:
                 nltk.download(pkg, quiet=True)
     except ImportError as e:
-        print(f"[X] Faltan dependencias: {e}")
+        print(f"Faltan dependencias: {e}")
         print("  pip install nltk rouge-score bert-score tiktoken")
         return
 
     if not os.path.exists(GEN_CKPT):
-        print(f"[X] No existe {GEN_CKPT}. Entrena primero.")
+        print(f"No existe {GEN_CKPT}. Entrena primero.")
         return
 
     ckpt = torch.load(GEN_CKPT, map_location=device, weights_only=False)
@@ -804,9 +770,9 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
     is_gpu = (device == "cuda" or
               (hasattr(device, 'type') and device.type == "cuda"))
 
-    print(f"[OK] Modelo cargado (época {ckpt.get('epoch','?')}, "
+    print(f"Modelo cargado (época {ckpt.get('epoch','?')}, "
           f"val_lm={ckpt.get('val_lm','?')})")
-    print(f"\n[TEST] Evaluando sobre {len(test_pares)} ejemplos del test set...\n")
+    print(f"\nEvaluando sobre {len(test_pares)} ejemplos del test set...\n")
 
     rouge  = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
     smooth = SmoothingFunction().method1
@@ -837,7 +803,7 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
         tok_in  = contar_tokens_tiktoken(preg) + TOKENS_PROMPT_SISTEMA
         tok_out = contar_tokens_tiktoken(hyp)
 
-        # -- Métricas de calidad -------------------------
+        # Métricas de calidad
         rouge_l = rouge.score(ref, hyp)['rougeL'].fmeasure
         ref_tok = ref.split()
         hyp_tok = hyp.split()
@@ -849,7 +815,7 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
         except Exception:
             meteor = 0.0
 
-        # -- Coste y CO2 (esquema costes.py) -------------
+        # Coste y CO2 (esquema costes.py)
         coste_usd  = tok_in * GAN_PRECIO_INPUT + tok_out * GAN_PRECIO_OUTPUT
         co2_gramos = (tok_in + tok_out) * GAN_KWH_POR_TOKEN * CO2_POR_KWH
 
@@ -873,8 +839,8 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
 
     t_total = time.time() - t_total_start
 
-    # -- BERTScore en batch ------------------------------
-    print("\n[*] Calculando BERTScore...")
+    # BERTScore en batch
+    print("\nCalculando BERTScore...")
     try:
         from bert_score import score as bert_score_fn
         P, R, F1 = bert_score_fn(hyps, refs, lang="es", verbose=False,
@@ -883,12 +849,12 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
             rows[i]["bertscore_f1"] = round(f1, 4)
         bert_avg = float(F1.mean())
     except Exception as e:
-        print(f"[!] BERTScore falló: {e}")
+        print(f"BERTScore falló: {e}")
         bert_avg = None
         for r in rows:
             r["bertscore_f1"] = None
 
-    # -- Promedios y totales ------------------------------
+    # Promedios y totales
     n = len(rows)
     avg = {
         "rougeL":         round(sum(r["rougeL"]        for r in rows) / n, 4),
@@ -943,7 +909,7 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
             "totals":           totals,
             "rows":             rows,
         }, f, indent=2, ensure_ascii=False)
-    print(f"\n[OK] Resultados guardados en {EVAL_FILE}")
+    print(f"\nResultados guardados en {EVAL_FILE}")
 
     # CSV con el mismo formato que costes.py añade a tus análisis
     csv_file = EVAL_FILE.replace('.json', '.csv')
@@ -963,11 +929,8 @@ def evaluar_metricas(test_pares, sp, device="cpu"):
                 r["rougeL"], r["bleu"], r["meteor"], r.get("bertscore_f1", ""),
                 r["Coste_USD"], r["CO2_gramos"],
             ])
-    print(f"[OK] CSV compatible con costes.py: {csv_file}")
+    print(f"CSV compatible con costes.py: {csv_file}")
 
-# =========================================================
-# PASO 8 - INFERENCIA INDIVIDUAL
-# =========================================================
 
 def generar_respuesta(pregunta, sp, device="cpu"):
     ckpt = torch.load(GEN_CKPT, map_location=device, weights_only=False)
@@ -983,9 +946,6 @@ def generar_respuesta(pregunta, sp, device="cpu"):
     with torch.no_grad():
         return gen.generar(src, sp, max_new_tokens=150)
 
-# =========================================================
-# CLI
-# =========================================================
 
 def main():
     parser = argparse.ArgumentParser()
@@ -1013,13 +973,13 @@ def main():
     if args.vocab_size is not None:
         cfg = dict(cfg)  # copia para no modificar el dict global
         cfg["vocab_size"] = args.vocab_size
-        print(f"[INFO] vocab_size override: {args.vocab_size}")
+        print(f"vocab_size override: {args.vocab_size}")
 
     if args.batch_size is not None:
         if not isinstance(cfg, dict):
             cfg = dict(cfg)
         cfg["batch_size"] = args.batch_size
-        print(f"[INFO] batch_size override: {args.batch_size}")
+        print(f"batch_size override: {args.batch_size}")
 
     # Reproducibilidad
     random.seed(SEED)
@@ -1027,24 +987,24 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(SEED)
 
-    # --- Modo: generar respuesta individual ----------------------
+    # Modo: generar respuesta individual
     if args.generar:
         if not os.path.exists(f"{SPM_PREFIX}.model"):
-            print("[X] No hay tokenizador. Entrena primero.")
+            print("No hay tokenizador. Entrena primero.")
             return
         sp = cargar_tokenizador(SPM_PREFIX)
         pregunta = args.pregunta or input("Pregunta: ")
-        print(f"\n[*] Generando respuesta...")
-        print(f"\n[NOTE] {generar_respuesta(pregunta, sp, cfg['device'])}\n")
+        print(f"\nGenerando respuesta...")
+        print(f"\n{generar_respuesta(pregunta, sp, cfg['device'])}\n")
         return
 
-    # --- Modo: evaluar con métricas ------------------------------
+    # Modo: evaluar con métricas
     if args.evaluar:
         if not os.path.exists(f"{SPM_PREFIX}.model"):
-            print("[X] No hay tokenizador. Entrena primero.")
+            print("No hay tokenizador. Entrena primero.")
             return
         if not os.path.exists(args.csv):
-            print(f"[X] No existe {args.csv}")
+            print(f"No existe {args.csv}")
             print(f"  Ejecuta primero: python reestructurar_dataset.py")
             return
         sp = cargar_tokenizador(SPM_PREFIX)
@@ -1055,15 +1015,15 @@ def main():
         if args.splits_json and os.path.exists(args.splits_json):
             _, _, test_pares = split_dataset_externo(pares, args.splits_json)
         else:
-            print("[!] No hay --splits-json, usando split aleatorio LEGACY")
+            print("No hay --splits-json, usando split aleatorio LEGACY")
             _, _, test_pares = split_dataset(pares)
 
         evaluar_metricas(test_pares, sp, device=cfg["device"])
         return
 
-    # --- Modo: entrenar ------------------------------------------
+    # Modo: entrenar
     if not os.path.exists(args.csv):
-        print(f"[X] No existe {args.csv}")
+        print(f"No existe {args.csv}")
         print(f"  Ejecuta primero: python reestructurar_dataset.py")
         sys.exit(1)
 
@@ -1071,7 +1031,7 @@ def main():
     pares = leer_dataset(args.csv, asignatura_filtro=asig)
 
     if not pares:
-        print("[X] Sin pares. Verifica el nombre de la asignatura.")
+        print("Sin pares. Verifica el nombre de la asignatura.")
         sys.exit(1)
 
     # Usar split externo si existe (cero data leakage)
@@ -1079,7 +1039,7 @@ def main():
         train_pares, val_pares, test_pares = split_dataset_externo(pares, args.splits_json)
     else:
         if args.modo == "final":
-            print("[!] ATENCIÓN: --splits-json no proporcionado en modo final.")
+            print("ATENCIÓN: --splits-json no proporcionado en modo final.")
             print("   Usando split aleatorio (puede haber data leakage).")
             print("   Recomendación: ejecuta hacer_splits.py primero.")
         train_pares, val_pares, test_pares = split_dataset(pares)
@@ -1088,7 +1048,7 @@ def main():
     if not os.path.exists(f"{SPM_PREFIX}.model"):
         entrenar_tokenizador(train_pares, cfg["vocab_size"], SPM_PREFIX)
     else:
-        print(f"[OK] Tokenizador ya existe: {SPM_PREFIX}.model")
+        print(f"Tokenizador ya existe: {SPM_PREFIX}.model")
 
     sp = cargar_tokenizador(SPM_PREFIX)
 
@@ -1102,7 +1062,7 @@ def main():
 
     entrenar(cfg, train_pares, val_pares, sp, epochs=args.epochs)
 
-    print(f"\n[*] Para evaluar con métricas sobre el test set:")
+    print(f"\nPara evaluar con métricas sobre el test set:")
     print(f"   python {os.path.basename(__file__)} --evaluar "
           f"--modo {args.modo}"
           + (f" --splits-json {args.splits_json}" if args.splits_json else ""))
@@ -1110,4 +1070,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -1,24 +1,22 @@
-# pip install openai tqdm pandas evaluate rouge_score bert_score sacrebleu nltk tiktoken
 """
-Pipeline OpenRouter - Mini-SLMs (1-2B parámetros).
+Inferencia y evaluacion de Mini-SLMs (Llama 3.2 1B, Gemma 3 1B, Qwen3 1.7B) sobre
+el dataset propio de Telecomunicaciones (24.680 pares pregunta-respuesta en
+espanol). En Qwen3 se desactiva el modo de razonamiento (enable_thinking).
 
-Procesa los 3 Mini-SLMs sobre la BBDD propia de Telecomunicaciones (CEU)
-con prompt en español:
-  - Llama 3.2 1B Instruct
-  - Gemma 3 1B IT
-  - Qwen 3 1.7B (con enable_thinking=False)
+Con --split splits_por_subtema.json la evaluacion se restringe a val+test.
+Calcula metricas globales y por fila (ROUGE-L, METEOR, BLEU, BERTScore con
+xlm-roberta-base), tiempo, tokens, coste y CO2. Procesa en paralelo, reanuda
+ejecuciones interrumpidas y dispone de un modo --fix para reprocesar errores.
 
-Procesa el dataset COMPLETO (24.680 pares) sobre cada modelo y calcula:
-  - Métricas globales (ROUGE-L, METEOR, BLEU, BERTScore)
-  - Métricas por fila (para boxplots)
-  - Coste y CO2 por fila
+Las claves se leen de las variables de entorno OPENROUTER_API_KEY y TOGETHER_API_KEY.
 
-ROBUSTO: Multihilo (20 hilos), resume anti-duplicados, modo --fix de errores.
+Requisitos:
+    pip install openai tqdm pandas evaluate rouge_score bert_score sacrebleu nltk tiktoken
 
 Uso:
-    python pipeline_openrouter_minislm.py --model llama
-    python pipeline_openrouter_minislm.py --model qwen --limit 100
-    python pipeline_openrouter_minislm.py --model gemma --fix
+    python pipelineminiSLMbbdd.py --model llama --evaluar
+    python pipelineminiSLMbbdd.py --model qwen --evaluar --split resultados_arturo/splits/splits_por_subtema.json
+    python pipelineminiSLMbbdd.py --model gemma --fix
 """
 
 import sys
@@ -43,16 +41,10 @@ from tqdm import tqdm
 import evaluate
 from io import StringIO
 
-# =========================================================
-# CANDADO DE SEGURIDAD PARA MULTIHILO
-# =========================================================
 csv_lock = threading.Lock()
 
-# =========================================================
-# CONFIGURACIÓN
-# =========================================================
-TOGETHER_API_KEY  = "REDACTED"
-OPENROUTER_API_KEY = "REDACTED"
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 DATASET_PATH = "dataset_teleco.csv"
 OUTDIR = "resultados_arturo/minislm_base"
@@ -113,11 +105,8 @@ CO2_POR_KWH = 475
 TOKENS_PROMPT_SISTEMA = 45
 
 
-# =========================================================
-# LIMPIEZA FINAL DEL CSV
-# =========================================================
 def limpiar_csv_final(archivo, total_filas):
-    print(f"\n[CLEAN] Limpiando {archivo}...")
+    print(f"\nLimpiando {archivo}...")
     with open(archivo, 'r', encoding='utf-8') as f:
         contenido = f.read()
     reader = csv.reader(StringIO(contenido))
@@ -158,17 +147,14 @@ def limpiar_csv_final(archivo, total_filas):
 
     errores_restantes = sum(1 for d in datos if d[2].startswith("Error:"))
     total_lineas = 1 + len(datos) + len(metricas)
-    print(f"   [OK] {len(datos)} datos ({errores_restantes} errores) + {len(metricas)} métricas + 1 cabecera = {total_lineas} líneas totales")
+    print(f"   {len(datos)} datos ({errores_restantes} errores) + {len(metricas)} métricas + 1 cabecera = {total_lineas} líneas totales")
 
 
-# =========================================================
-# CARGA DE DATASET TELECO
-# =========================================================
 def cargar_dataset_teleco(csv_path, limit=None, split_json=None):
     """Lee dataset_teleco.csv y devuelve lista de pares (pregunta, respuesta).
     Si split_json apunta a splits_por_subtema.json, filtra solo val+test."""
     if not os.path.exists(csv_path):
-        print(f"[X] ERROR: No se encontró {csv_path}")
+        print(f"ERROR: No se encontró {csv_path}")
         return None
 
     df = pd.read_csv(csv_path)
@@ -186,25 +172,22 @@ def cargar_dataset_teleco(csv_path, limit=None, split_json=None):
             splits = json.load(f)
         valtest_ids = set(splits['val_ids'] + splits['test_ids'])
         df = df[df.index.isin(valtest_ids)]
-        print(f"[SPLIT] Filtrado val+test: {len(df)} filas (de {splits['n_filas_total']})")
+        print(f"Filtrado val+test: {len(df)} filas (de {splits['n_filas_total']})")
 
     pares = list(zip(df['pregunta'].tolist(), df['respuesta'].tolist()))
 
     if limit:
         pares = pares[:limit]
 
-    print(f"[READ] Cargado {csv_path}: {len(pares)} pares")
+    print(f"Cargado {csv_path}: {len(pares)} pares")
     return pares
 
 
-# =========================================================
-# PIPELINE PRINCIPAL
-# =========================================================
 def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, split_json=None):
     api_key = get_api_key(model_key)
     base_url = get_base_url(model_key)
-    if not api_key or "PEGA_AQUI" in api_key:
-        print(f"[X] API key no configurada para {model_key}. Edita la línea correspondiente al inicio del archivo.")
+    if not api_key:
+        print(f"API key no configurada para {model_key}. Edita la línea correspondiente al inicio del archivo.")
         return
 
     model_id = MODELS_CONFIG[model_key]
@@ -225,7 +208,7 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
         metrica_bleu   = evaluate.load('bleu')
         metrica_bert   = evaluate.load('bertscore')
     else:
-        print("[INFO] Modo solo inferencia (sin --evaluar)")
+        print("Modo solo inferencia (sin --evaluar)")
 
     pares = cargar_dataset_teleco(csv_path, limit, split_json=split_json)
     if pares is None:
@@ -241,9 +224,6 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
     print(f"Hilos concurrentes: {MAX_HILOS}")
     print("=" * 50)
 
-    # =========================================================
-    # LECTOR CSV AUTO-REPARABLE Y ANTI-DUPLICADOS
-    # =========================================================
     dict_procesados = {}
 
     if os.path.exists(output_name):
@@ -332,9 +312,6 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
 
         filas_procesadas_total += 1
 
-    # =========================================================
-    # FUNCIÓN QUE EJECUTARÁ CADA HILO
-    # =========================================================
     def es_modelo_gemma(mid):
         return "gemma" in str(mid).lower()
 
@@ -406,7 +383,6 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
         end_row_time = time.time()
         row_time = round(end_row_time - start_row_time, 4)
 
-        # GUARDADO PROTEGIDO POR EL CANDADO
         with csv_lock:
             nueva_fila = pd.DataFrame([{
                 "Structured_Data": pregunta_limpia,
@@ -418,11 +394,8 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
 
         return generated_text, respuesta, row_time, pregunta_limpia
 
-    # =========================================================
-    # EJECUCIÓN CONCURRENTE (MULTIHILO)
-    # =========================================================
     if len(items_a_procesar) > 0:
-        print(f"\n[GO] Lanzando {MAX_HILOS} hilos para las {len(items_a_procesar)} filas restantes...")
+        print(f"\nLanzando {MAX_HILOS} hilos para las {len(items_a_procesar)} filas restantes...")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_HILOS) as executor:
             resultados = list(tqdm(
@@ -438,14 +411,12 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
                 pregs_validas.append(preg)
             tiempos.append(r_time)
     else:
-        print("\n[OK] Todas las filas ya estaban procesadas.")
+        print("\nTodas las filas ya estaban procesadas.")
 
     total_time = sum(tiempos)
     avg_time   = sum(tiempos) / len(tiempos) if tiempos else 0
 
-    # =========================================================
     # MÉTRICAS (solo si --evaluar)
-    # =========================================================
     if evaluar and len(preds_validas) > 0:
         print(f"\nEvaluando las {len(preds_validas)} respuestas válidas...")
 
@@ -454,13 +425,13 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
             res_rouge  = metrica_rouge.compute(predictions=preds_validas, references=refs_validas)
             rouge_score  = round(res_rouge['rougeL'], 4)
         except Exception as e:
-            print(f"[!] ROUGE global falló: {e}")
+            print(f"ROUGE global falló: {e}")
             rouge_score = 0.0
         try:
             res_meteor = metrica_meteor.compute(predictions=preds_validas, references=refs_validas)
             meteor_score = round(res_meteor['meteor'], 4)
         except Exception as e:
-            print(f"[!] METEOR global falló: {e}")
+            print(f"METEOR global falló: {e}")
             meteor_score = 0.0
         try:
             bleu_score = round(metrica_bleu.compute(
@@ -468,7 +439,7 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
                 references=[[r] for r in refs_validas]
             )['bleu'], 4)
         except Exception as e:
-            print(f"[!] BLEU global falló: {e}")
+            print(f"BLEU global falló: {e}")
             bleu_score = 0.0
 
         # BERTScore en español
@@ -487,7 +458,7 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
                 )
                 all_f1.extend(res['f1'])
             except Exception as e:
-                print(f"[!] BERTScore batch {i} falló: {e}")
+                print(f"BERTScore batch {i} falló: {e}")
                 all_f1.extend([0.0] * len(batch_preds))
 
         bert_score = round(sum(all_f1) / len(all_f1), 4) if all_f1 else 0.0
@@ -579,20 +550,18 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH, evaluar=False, sp
         print(f"Errores: {errores}")
         print(f"Tiempo total: {total_time:.2f}s | Media: {avg_time:.4f}s/fila")
         if not evaluar:
-            print(f"[INFO] Usa --evaluar para calcular métricas")
+            print(f"Usa --evaluar para calcular métricas")
         print(f"{'=' * 50}")
 
     limpiar_csv_final(output_name, total_filas)
 
 
-# =========================================================
 # MODO FIX: arregla errores y recalcula métricas
-# =========================================================
 def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
     api_key = get_api_key(model_key)
     base_url = get_base_url(model_key)
-    if not api_key or "PEGA_AQUI" in api_key:
-        print(f"[X] API key no configurada para {model_key}.")
+    if not api_key:
+        print(f"API key no configurada para {model_key}.")
         return
 
     model_id = MODELS_CONFIG[model_key]
@@ -729,15 +698,15 @@ def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
     try:
         rouge_score = round(metrica_rouge.compute(predictions=preds, references=refs)['rougeL'], 4)
     except Exception as e:
-        print(f"[!] ROUGE global falló: {e}"); rouge_score = 0.0
+        print(f"ROUGE global falló: {e}"); rouge_score = 0.0
     try:
         meteor_score = round(metrica_meteor.compute(predictions=preds, references=refs)['meteor'], 4)
     except Exception as e:
-        print(f"[!] METEOR global falló: {e}"); meteor_score = 0.0
+        print(f"METEOR global falló: {e}"); meteor_score = 0.0
     try:
         bleu_score = round(metrica_bleu.compute(predictions=preds, references=[[r] for r in refs])['bleu'], 4)
     except Exception as e:
-        print(f"[!] BLEU global falló: {e}"); bleu_score = 0.0
+        print(f"BLEU global falló: {e}"); bleu_score = 0.0
     print(f"  ROUGE-L: {rouge_score} | METEOR: {meteor_score} | BLEU: {bleu_score}")
 
     print(f"Calculando BERTScore en batches de {BATCH_BERT}...")
@@ -751,7 +720,7 @@ def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
             )
             all_f1.extend(res['f1'])
         except Exception as e:
-            print(f"[!] BERTScore batch {i} falló: {e}")
+            print(f"BERTScore batch {i} falló: {e}")
             all_f1.extend([0.0] * len(preds[i:i+BATCH_BERT]))
     bert_score = round(sum(all_f1) / len(all_f1), 4) if all_f1 else 0.0
     print(f"  BERTScore: {bert_score}")
@@ -835,9 +804,6 @@ def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
     print(f"{'=' * 50}")
 
 
-# =========================================================
-# CLI
-# =========================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline OpenRouter Mini-SLM (Teleco, multihilo)")
     parser.add_argument("--model", required=True, choices=list(MODELS_CONFIG.keys()),

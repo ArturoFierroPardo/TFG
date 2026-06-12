@@ -1,22 +1,13 @@
 """
-Pipeline GAN - versión corregida.
+Pipeline de la GAN de generacion de texto para Q&A de Telecomunicaciones.
 
-CAMBIOS RESPECTO A LA VERSIÓN ANTERIOR:
-  - Pasa --splits-json al script gan_teleco_v3.py (cero data leakage)
-  - Inferencia EFICIENTE: carga el modelo UNA vez (no por fila)
-  - Evalúa solo sobre TEST SET (4.280 pares) - comparable con Mini-SLMs FT
-  - Resume robusto: usa pd.read_csv y descarta última fila por seguridad
-  - Usa el resume del entrenamiento (gan_train_state.pt)
+Orquesta el flujo completo por fases reanudables: genera los splits por subtema,
+entrena la GAN (gan_teleco_v3.py) con reanudacion y fallback de batch size,
+dibuja las curvas de aprendizaje, ejecuta inferencia sobre val y test cargando el
+modelo una sola vez, y calcula metricas (ROUGE-L, METEOR, BLEU, BERTScore), coste
+y CO2 por fila. Repite inferencia y metricas sobre KELM (BERTScore en ingles).
 
-Pasos:
-  1. Detecta GPU
-  2. Verifica/crea splits por subtema
-  3. Entrena GAN modo final (con resume desde checkpoint completo)
-  4. Genera curvas de aprendizaje
-  5. Inferencia sobre TEST SET Teleco (cargando modelo UNA vez)
-  6. Calcula métricas por fila + costes + CO2 (Teleco)
-  7. Inferencia sobre KELM (kelm_stem_60k.csv)
-  8. Calcula métricas KELM (BERTScore en inglés)
+El estado se guarda en estado.json para poder reanudar cualquier fase.
 
 Uso:
     python pipeline_gan.py
@@ -92,14 +83,14 @@ def detectar_gpu():
     try:
         import torch
         if not torch.cuda.is_available():
-            log("[!] NO hay GPU. La GAN tardará MUCHO en CPU.", "WARN")
+            log("NO hay GPU. La GAN tardará MUCHO en CPU.", "WARN")
             return {"vram_gb": 0, "device": "cpu"}
         vram = torch.cuda.get_device_properties(0).total_memory / 1e9
         nombre = torch.cuda.get_device_name(0)
         log(f"GPU detectada: {nombre} con {vram:.1f} GB VRAM")
         return {"vram_gb": vram, "device": "cuda"}
     except Exception as e:
-        log(f"[!] Error detectando GPU: {e}", "WARN")
+        log(f"Error detectando GPU: {e}", "WARN")
         return {"vram_gb": 0, "device": "cpu"}
 
 
@@ -120,7 +111,7 @@ def filas_completadas(csv_path, n_total=None):
             return n_total
         return max(0, n - 1) if n > 0 else 0
     except Exception as e:
-        log(f"[!] Error leyendo CSV existente {csv_path}: {e}", "WARN")
+        log(f"Error leyendo CSV existente {csv_path}: {e}", "WARN")
         return 0
 
 
@@ -133,12 +124,10 @@ def truncar_csv_a(csv_path, n_filas):
         if len(df) > n_filas:
             df.head(n_filas).to_csv(csv_path, index=False)
     except Exception as e:
-        log(f"[!] No pude truncar {csv_path}: {e}", "WARN")
+        log(f"No pude truncar {csv_path}: {e}", "WARN")
 
 
-# =========================================================
 # FASE 1: Splits
-# =========================================================
 def fase_splits(args, estado):
     log("=" * 60)
     log("FASE 1: Splits por subtema")
@@ -150,26 +139,24 @@ def fase_splits(args, estado):
                               "--csv", args.csv,
                               "--outdir", os.path.join(OUTDIR_BASE, "splits")])
         if ret.returncode != 0:
-            log("[X] Error generando splits", "ERROR")
+            log("Error generando splits", "ERROR")
             return False
     else:
-        log(f"[OK] Splits ya existen: {SPLITS_PATH}")
+        log(f"Splits ya existen: {SPLITS_PATH}")
 
     estado["splits_listos"] = True
     guardar_estado(estado)
     return True
 
 
-# =========================================================
 # FASE 2: Entrenamiento (con resume completo)
-# =========================================================
 def fase_entrenamiento(args, estado):
     log("=" * 60)
     log("FASE 2: Entrenamiento de la GAN")
     log("=" * 60)
 
     if estado["entrenamiento"] == "completado":
-        log("[OK] Entrenamiento ya completado, saltando")
+        log("Entrenamiento ya completado, saltando")
         return True
 
     estado["entrenamiento"] = "en_curso"
@@ -206,13 +193,13 @@ def fase_entrenamiento(args, estado):
         ret = subprocess.run(cmd)
 
         if ret.returncode == 0:
-            log(f"[OK] Entrenamiento completado con batch_size={bs}")
+            log(f"Entrenamiento completado con batch_size={bs}")
             break
         else:
-            log(f"[!] Falló con batch_size={bs}, probando siguiente...", "WARN")
+            log(f"Falló con batch_size={bs}, probando siguiente...", "WARN")
 
     if ret.returncode != 0:
-        log("[X] Entrenamiento falló con todos los batch sizes", "ERROR")
+        log("Entrenamiento falló con todos los batch sizes", "ERROR")
         log("  Al relanzar, reanudará desde gan_train_state.pt", "INFO")
         # Mover lo que haya conseguido al directorio gan/ para conservarlo
         for fname in ["gan_train_state.pt", "gan_training_log.json",
@@ -243,32 +230,30 @@ def fase_entrenamiento(args, estado):
     # Verificar que realmente se entrenó: debe existir el generador
     gen_pt = os.path.join(OUTDIR_GAN, "gan_generador.pt")
     if not os.path.exists(gen_pt):
-        log(f"[X] El subproceso terminó pero no se generó el modelo.", "ERROR")
+        log(f"El subproceso terminó pero no se generó el modelo.", "ERROR")
         log(f"    Esperado: {gen_pt}", "ERROR")
         log(f"    Revisa la salida del subproceso para ver el error real.", "ERROR")
         return False
 
     estado["entrenamiento"] = "completado"
     guardar_estado(estado)
-    log("[OK] Entrenamiento completado")
+    log("Entrenamiento completado")
     return True
 
 
-# =========================================================
 # FASE 3: Curvas de aprendizaje
-# =========================================================
 def fase_curvas(args, estado):
     log("=" * 60)
     log("FASE 3: Curvas de aprendizaje")
     log("=" * 60)
 
     if estado["curvas_generadas"]:
-        log("[OK] Curvas ya generadas, saltando")
+        log("Curvas ya generadas, saltando")
         return True
 
     log_json = os.path.join(OUTDIR_GAN, "gan_training_log.json")
     if not os.path.exists(log_json):
-        log(f"[!] No existe {log_json}, saltando curvas", "WARN")
+        log(f"No existe {log_json}, saltando curvas", "WARN")
         return True
 
     os.makedirs(OUTDIR_FIGURAS, exist_ok=True)
@@ -276,16 +261,16 @@ def fase_curvas(args, estado):
     try:
         _generar_curvas_gan(log_json, OUTDIR_FIGURAS)
     except Exception as e:
-        log(f"[!] Curvas falló (no crítico): {e}", "WARN")
+        log(f"Curvas falló (no crítico): {e}", "WARN")
         return True
 
     estado["curvas_generadas"] = True
     guardar_estado(estado)
-    log("[OK] Curvas generadas")
+    log("Curvas generadas")
     return True
 
 
-# ── Generación de curvas GAN (integrado de plot_gan_curves.py) ────────────
+# Generación de curvas GAN (integrado de plot_gan_curves.py)
 
 def _cargar_log_gan(path):
     with open(path, encoding='utf-8') as f:
@@ -331,7 +316,7 @@ def _generar_curvas_gan(log_path, outdir):
     ax.set_xlabel("Época"); ax.set_ylabel("Pérdida (cross-entropy)")
     ax.set_title("Pérdida del modelo de lenguaje del generador"); ax.legend()
     fig.savefig(os.path.join(outdir, "lm_loss.png")); plt.close(fig)
-    log("  [OK] lm_loss.png")
+    log("  lm_loss.png")
 
     # 2. Dinámica adversarial
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -341,7 +326,7 @@ def _generar_curvas_gan(log_path, outdir):
     ax.set_xlabel("Época"); ax.set_ylabel("Pérdida (BCE)")
     ax.set_title("Dinámica adversarial: generador vs. discriminador"); ax.legend()
     fig.savefig(os.path.join(outdir, "gan_dynamics.png")); plt.close(fig)
-    log("  [OK] gan_dynamics.png")
+    log("  gan_dynamics.png")
 
     # 3. Todas las pérdidas
     fig, ax = plt.subplots(figsize=(9, 5.5))
@@ -352,7 +337,7 @@ def _generar_curvas_gan(log_path, outdir):
     ax.set_xlabel("Época"); ax.set_ylabel("Pérdida")
     ax.set_title("Curvas de aprendizaje completas"); ax.legend(ncol=2)
     fig.savefig(os.path.join(outdir, "all_losses.png")); plt.close(fig)
-    log("  [OK] all_losses.png")
+    log("  all_losses.png")
 
     # 4. Resumen para la memoria (subplots)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -370,7 +355,7 @@ def _generar_curvas_gan(log_path, outdir):
     ax.set_title("(b) Dinámica adversarial"); ax.legend()
     fig.suptitle("Curvas de aprendizaje - GAN desde cero", fontsize=13, y=1.02)
     fig.savefig(os.path.join(outdir, "gan_summary.png")); plt.close(fig)
-    log("  [OK] gan_summary.png")
+    log("  gan_summary.png")
 
     # Diagnóstico
     n = len(d["epochs"])
@@ -446,16 +431,14 @@ def _inferencia_un_split(split_name, split_ids, df, cfg_modelo, gen, sp, gan_mod
     return True
 
 
-# =========================================================
 # FASE 4: Inferencia EFICIENTE sobre VAL + TEST (3.420 + 4.280)
-# =========================================================
 def fase_inferencia(args, estado):
     log("=" * 60)
     log("FASE 4: Inferencia GAN sobre VAL + TEST")
     log("=" * 60)
 
     if not os.path.exists(SPLITS_PATH):
-        log(f"[X] No existe {SPLITS_PATH}", "ERROR")
+        log(f"No existe {SPLITS_PATH}", "ERROR")
         return False
     with open(SPLITS_PATH, encoding='utf-8') as f:
         splits = json.load(f)
@@ -472,7 +455,7 @@ def fase_inferencia(args, estado):
         sys.path.insert(0, ".")
         import gan_teleco_v3 as gan_mod
     except Exception as e:
-        log(f"[X] No pude importar gan_teleco_v3.py: {e}", "ERROR")
+        log(f"No pude importar gan_teleco_v3.py: {e}", "ERROR")
         return False
 
     # Copiar archivos al cwd
@@ -484,7 +467,7 @@ def fase_inferencia(args, estado):
             shutil.copy(src, fname)
 
     if not os.path.exists("gan_generador.pt"):
-        log(f"[X] No existe el modelo entrenado", "ERROR")
+        log(f"No existe el modelo entrenado", "ERROR")
         return False
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -498,9 +481,9 @@ def fase_inferencia(args, estado):
         gen = gan_mod.Generador(cfg_modelo).to(device)
         gen.load_state_dict(ckpt["state_dict"])
         gen.eval()
-        log(f"  [OK] Modelo cargado (época {ckpt.get('epoch','?')}, val_lm={ckpt.get('val_lm','?')})")
+        log(f"  Modelo cargado (época {ckpt.get('epoch','?')}, val_lm={ckpt.get('val_lm','?')})")
     except Exception as e:
-        log(f"[X] Error cargando modelo: {e}", "ERROR")
+        log(f"Error cargando modelo: {e}", "ERROR")
         return False
 
     df = pd.read_csv(args.csv)
@@ -523,26 +506,24 @@ def fase_inferencia(args, estado):
             df_t  = pd.read_csv(results_csv_path("test"))
             df_vt = pd.concat([df_v, df_t], ignore_index=True)
             df_vt.to_csv(results_csv_path("valtest"), index=False)
-            log(f"  [OK] Combinado val+test: {len(df_vt)} filas -> {results_csv_path('valtest')}")
+            log(f"  Combinado val+test: {len(df_vt)} filas -> {results_csv_path('valtest')}")
         except Exception as e:
-            log(f"  [!] Error combinando val+test: {e}", "WARN")
+            log(f"  Error combinando val+test: {e}", "WARN")
 
     estado["inferencia"] = "completado"
     guardar_estado(estado)
-    log(f"[OK] Inferencia completada")
+    log(f"Inferencia completada")
     return True
 
 
-# =========================================================
 # FASE 5: Métricas + costes + CO2
-# =========================================================
 def _metricas_un_split_gan(split_name, results_csv, metricas_csv):
     """Calcula métricas para un CSV de la GAN (split val/test/valtest)."""
     if not os.path.exists(results_csv):
-        log(f"  [{split_name}] [X] No existe {results_csv}", "WARN")
+        log(f"  [{split_name}] No existe {results_csv}", "WARN")
         return False
     if os.path.exists(metricas_csv):
-        log(f"  [{split_name}] [OK] Métricas ya existen, saltando")
+        log(f"  [{split_name}] Métricas ya existen, saltando")
         return True
 
     import pandas as pd
@@ -555,7 +536,7 @@ def _metricas_un_split_gan(split_name, results_csv, metricas_csv):
     n_ok    = len(df_ok)
     log(f"  [{split_name}] Filas totales: {n_total}, sin errores: {n_ok}")
     if n_ok == 0:
-        log(f"  [{split_name}] [X] Cero filas válidas", "ERROR")
+        log(f"  [{split_name}] Cero filas válidas", "ERROR")
         return False
 
     preds = df_ok['LLM_Generated'].astype(str).tolist()
@@ -601,7 +582,7 @@ def _metricas_un_split_gan(split_name, results_csv, metricas_csv):
                              lang="es", model_type="xlm-roberta-base")
             bertscores.extend([round(x, 4) for x in r['f1']])
         except Exception as e:
-            log(f"  [!] BERTScore batch falló: {e}", "WARN")
+            log(f"  BERTScore batch falló: {e}", "WARN")
             bertscores.extend([0.0] * len(preds[i:i+BATCH]))
 
     try:
@@ -631,7 +612,7 @@ def _metricas_un_split_gan(split_name, results_csv, metricas_csv):
         'CO2_gramos':    co2,
     })
     df_out.to_csv(metricas_csv, index=False)
-    log(f"  [{split_name}] [OK] Guardado: {metricas_csv}")
+    log(f"  [{split_name}] Guardado: {metricas_csv}")
 
     with open(metricas_csv, 'a', encoding='utf-8') as f:
         f.write(f"\n--- RESUMEN GAN ({split_name}) ---\n")
@@ -665,13 +646,11 @@ def fase_metricas(args, estado):
     if ok_total:
         estado["metricas"] = "completado"
         guardar_estado(estado)
-        log("[OK] Métricas completadas (val + test + valtest)")
+        log("Métricas completadas (val + test + valtest)")
     return ok_total
 
 
-# =========================================================
 # FASE 6: Inferencia GAN sobre KELM
-# =========================================================
 
 def _kelm_results_path():
     return os.path.join(OUTDIR_GAN, "results_kelm_GAN.csv")
@@ -686,12 +665,12 @@ def fase_inferencia_kelm(args, estado):
     log("=" * 60)
 
     if estado.get("inferencia_kelm") == "completado":
-        log("[OK] Inferencia KELM ya completada, saltando")
+        log("Inferencia KELM ya completada, saltando")
         return True
 
     kelm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), KELM_CSV)
     if not os.path.exists(kelm_path):
-        log(f"[X] No existe {kelm_path}", "ERROR")
+        log(f"No existe {kelm_path}", "ERROR")
         return False
 
     estado["inferencia_kelm"] = "en_curso"
@@ -703,7 +682,7 @@ def fase_inferencia_kelm(args, estado):
         sys.path.insert(0, ".")
         import gan_teleco_v3 as gan_mod
     except Exception as e:
-        log(f"[X] No pude importar gan_teleco_v3.py: {e}", "ERROR")
+        log(f"No pude importar gan_teleco_v3.py: {e}", "ERROR")
         return False
 
     # Copiar archivos del modelo al cwd
@@ -715,7 +694,7 @@ def fase_inferencia_kelm(args, estado):
             shutil.copy(src, fname)
 
     if not os.path.exists("gan_generador.pt"):
-        log(f"[X] No existe el modelo entrenado", "ERROR")
+        log(f"No existe el modelo entrenado", "ERROR")
         return False
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -729,9 +708,9 @@ def fase_inferencia_kelm(args, estado):
         gen = gan_mod.Generador(cfg_modelo).to(device)
         gen.load_state_dict(ckpt["state_dict"])
         gen.eval()
-        log(f"  [OK] Modelo cargado")
+        log(f"  Modelo cargado")
     except Exception as e:
-        log(f"[X] Error cargando modelo: {e}", "ERROR")
+        log(f"Error cargando modelo: {e}", "ERROR")
         return False
 
     df = pd.read_csv(kelm_path)
@@ -746,7 +725,7 @@ def fase_inferencia_kelm(args, estado):
         truncar_csv_a(csv_path, n_done)
         log(f"  Reanudando desde fila {n_done}")
     elif n_done >= n_total:
-        log(f"  [OK] Ya procesado por completo")
+        log(f"  Ya procesado por completo")
         estado["inferencia_kelm"] = "completado"
         guardar_estado(estado)
         return True
@@ -797,13 +776,11 @@ def fase_inferencia_kelm(args, estado):
 
     estado["inferencia_kelm"] = "completado"
     guardar_estado(estado)
-    log(f"[OK] Inferencia KELM completada: {csv_path}")
+    log(f"Inferencia KELM completada: {csv_path}")
     return True
 
 
-# =========================================================
 # FASE 7: Métricas KELM (BERTScore en inglés)
-# =========================================================
 
 def fase_metricas_kelm(args, estado):
     log("=" * 60)
@@ -811,17 +788,17 @@ def fase_metricas_kelm(args, estado):
     log("=" * 60)
 
     if estado.get("metricas_kelm") == "completado":
-        log("[OK] Métricas KELM ya completadas, saltando")
+        log("Métricas KELM ya completadas, saltando")
         return True
 
     results_csv  = _kelm_results_path()
     metricas_csv = _kelm_metricas_path()
 
     if not os.path.exists(results_csv):
-        log(f"[X] No existe {results_csv}", "WARN")
+        log(f"No existe {results_csv}", "WARN")
         return False
     if os.path.exists(metricas_csv):
-        log("[OK] Métricas KELM ya existen, saltando")
+        log("Métricas KELM ya existen, saltando")
         estado["metricas_kelm"] = "completado"
         guardar_estado(estado)
         return True
@@ -917,13 +894,10 @@ def fase_metricas_kelm(args, estado):
 
     estado["metricas_kelm"] = "completado"
     guardar_estado(estado)
-    log(f"[OK] Métricas KELM guardadas: {metricas_csv}")
+    log(f"Métricas KELM guardadas: {metricas_csv}")
     return True
 
 
-# =========================================================
-# MAIN
-# =========================================================
 def preparar_nltk():
     """Descarga recursos de NLTK necesarios para METEOR."""
     try:
@@ -936,9 +910,9 @@ def preparar_nltk():
                     nltk.download(pkg, quiet=True)
                     log(f"  NLTK: descargado '{pkg}'")
                 except Exception as e:
-                    log(f"  [!] NLTK: no pude descargar '{pkg}': {e}", "WARN")
+                    log(f"  NLTK: no pude descargar '{pkg}': {e}", "WARN")
     except Exception as e:
-        log(f"  [!] NLTK no disponible: {e}", "WARN")
+        log(f"  NLTK no disponible: {e}", "WARN")
 
 
 def main():
@@ -977,9 +951,9 @@ def main():
         try:
             ok = func()
             if not ok:
-                log(f"[X] Fase '{nombre}' falló. Continuando con la siguiente...", "WARN")
+                log(f"Fase '{nombre}' falló. Continuando con la siguiente...", "WARN")
         except Exception as e:
-            log(f"[X] Excepción en '{nombre}': {e}", "ERROR")
+            log(f"Excepción en '{nombre}': {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "ERROR")
 

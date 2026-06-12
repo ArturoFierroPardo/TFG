@@ -1,24 +1,20 @@
-# pip install openai tqdm pandas evaluate rouge_score bert_score sacrebleu nltk tiktoken
 """
-Pipeline OpenRouter - SLMs (Small Language Models de tamaño 3B-9B).
+Inferencia y evaluacion de SLMs (Llama 3.2 3B, Qwen 2.5 7B, Gemma 2 9B) sobre el
+dataset propio de Telecomunicaciones (24.680 pares pregunta-respuesta en espanol).
 
-Adapta tu pipelineSLM original a la BBDD propia de Telecomunicaciones (CEU)
-con prompt en español. Los modelos siguen siendo los mismos que ya usabas:
-  - Llama 3.2 3B Instruct
-  - Qwen 2.5 7B Instruct
-  - Gemma 2 9B Instruct
+Calcula metricas globales y por fila (ROUGE-L, METEOR, BLEU, BERTScore con
+xlm-roberta-base), tiempo, tokens, coste y CO2. Procesa en paralelo, reanuda
+ejecuciones interrumpidas y dispone de un modo --fix para reprocesar errores.
 
-Procesa el dataset COMPLETO (24.680 pares) sobre cada modelo y calcula:
-  - Métricas globales (ROUGE-L, METEOR, BLEU, BERTScore)
-  - Métricas por fila (para boxplots)
-  - Coste y CO2 por fila
+Las claves se leen de las variables de entorno OPENROUTER_API_KEY y TOGETHER_API_KEY.
 
-ROBUSTO: Multihilo (20 hilos), resume anti-duplicados, modo --fix de errores.
+Requisitos:
+    pip install openai tqdm pandas evaluate rouge_score bert_score sacrebleu nltk tiktoken
 
 Uso:
-    python pipeline_openrouter_slm.py --model llama
-    python pipeline_openrouter_slm.py --model qwen --limit 100
-    python pipeline_openrouter_slm.py --model gemma --fix
+    python pipelineSLMbbdd.py --model llama
+    python pipelineSLMbbdd.py --model qwen --limit 100
+    python pipelineSLMbbdd.py --model gemma --fix
 """
 
 import sys
@@ -43,16 +39,10 @@ from tqdm import tqdm
 import evaluate
 from io import StringIO
 
-# =========================================================
-# CANDADO DE SEGURIDAD PARA MULTIHILO
-# =========================================================
 csv_lock = threading.Lock()
 
-# =========================================================
-# CONFIGURACIÓN
-# =========================================================
-TOGETHER_API_KEY = "REDACTED"
-OPENROUTER_API_KEY = "REDACTED"
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 DATASET_PATH = "dataset_teleco.csv"
 OUTDIR = "resultados_arturo/slm_base"
@@ -112,11 +102,8 @@ CO2_POR_KWH = 475
 TOKENS_PROMPT_SISTEMA = 45
 
 
-# =========================================================
-# LIMPIEZA FINAL DEL CSV
-# =========================================================
 def limpiar_csv_final(archivo, total_filas):
-    print(f"\n[CLEAN] Limpiando {archivo}...")
+    print(f"\nLimpiando {archivo}...")
     with open(archivo, 'r', encoding='utf-8') as f:
         contenido = f.read()
     reader = csv.reader(StringIO(contenido))
@@ -157,16 +144,13 @@ def limpiar_csv_final(archivo, total_filas):
 
     errores_restantes = sum(1 for d in datos if d[2].startswith("Error:"))
     total_lineas = 1 + len(datos) + len(metricas)
-    print(f"   [OK] {len(datos)} datos ({errores_restantes} errores) + {len(metricas)} métricas + 1 cabecera = {total_lineas} líneas totales")
+    print(f"   {len(datos)} datos ({errores_restantes} errores) + {len(metricas)} métricas + 1 cabecera = {total_lineas} líneas totales")
 
 
-# =========================================================
-# CARGA DE DATASET TELECO
-# =========================================================
 def cargar_dataset_teleco(csv_path, limit=None):
     """Lee dataset_teleco.csv y devuelve lista de pares (pregunta, respuesta)."""
     if not os.path.exists(csv_path):
-        print(f"[X] ERROR: No se encontró {csv_path}")
+        print(f"ERROR: No se encontró {csv_path}")
         return None
 
     df = pd.read_csv(csv_path)
@@ -182,18 +166,15 @@ def cargar_dataset_teleco(csv_path, limit=None):
     if limit:
         pares = pares[:limit]
 
-    print(f"[READ] Cargado {csv_path}: {len(pares)} pares")
+    print(f"Cargado {csv_path}: {len(pares)} pares")
     return pares
 
 
-# =========================================================
-# PIPELINE PRINCIPAL
-# =========================================================
 def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
     api_key = get_api_key(model_key)
     base_url = get_base_url(model_key)
-    if not api_key or "PEGA_AQUI" in api_key:
-        print(f"[X] API key no configurada para {model_key}. Edita la línea correspondiente.")
+    if not api_key:
+        print(f"API key no configurada para {model_key}. Edita la línea correspondiente.")
         return
 
     model_id = MODELS_CONFIG[model_key]
@@ -226,9 +207,6 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
     print(f"Hilos concurrentes: {MAX_HILOS}")
     print("=" * 50)
 
-    # =========================================================
-    # LECTOR CSV AUTO-REPARABLE Y ANTI-DUPLICADOS
-    # =========================================================
     dict_procesados = {}
 
     if os.path.exists(output_name):
@@ -317,9 +295,6 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
 
         filas_procesadas_total += 1
 
-    # =========================================================
-    # FUNCIÓN QUE EJECUTARÁ CADA HILO
-    # =========================================================
     def es_modelo_gemma(mid):
         return "gemma" in str(mid).lower()
 
@@ -369,7 +344,6 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
         end_row_time = time.time()
         row_time = round(end_row_time - start_row_time, 4)
 
-        # GUARDADO PROTEGIDO POR EL CANDADO
         with csv_lock:
             nueva_fila = pd.DataFrame([{
                 "Structured_Data": pregunta_limpia,
@@ -381,11 +355,8 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
 
         return generated_text, respuesta, row_time, pregunta_limpia
 
-    # =========================================================
-    # EJECUCIÓN CONCURRENTE (MULTIHILO)
-    # =========================================================
     if len(items_a_procesar) > 0:
-        print(f"\n[GO] Lanzando {MAX_HILOS} hilos para las {len(items_a_procesar)} filas restantes...")
+        print(f"\nLanzando {MAX_HILOS} hilos para las {len(items_a_procesar)} filas restantes...")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_HILOS) as executor:
             resultados = list(tqdm(
@@ -401,14 +372,11 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
                 pregs_validas.append(preg)
             tiempos.append(r_time)
     else:
-        print("\n[OK] Todas las filas ya estaban procesadas.")
+        print("\nTodas las filas ya estaban procesadas.")
 
     total_time = sum(tiempos)
     avg_time   = sum(tiempos) / len(tiempos) if tiempos else 0
 
-    # =========================================================
-    # MÉTRICAS GLOBALES + POR FILA
-    # =========================================================
     print(f"\nEvaluando las {len(preds_validas)} respuestas válidas...")
 
     if len(preds_validas) > 0:
@@ -417,14 +385,14 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
             res_rouge  = metrica_rouge.compute(predictions=preds_validas, references=refs_validas)
             rouge_score  = round(res_rouge['rougeL'], 4)
         except Exception as e:
-            print(f"[!] ROUGE global falló: {e}")
+            print(f"ROUGE global falló: {e}")
             rouge_score = 0.0
 
         try:
             res_meteor = metrica_meteor.compute(predictions=preds_validas, references=refs_validas)
             meteor_score = round(res_meteor['meteor'], 4)
         except Exception as e:
-            print(f"[!] METEOR global falló: {e}")
+            print(f"METEOR global falló: {e}")
             meteor_score = 0.0
 
         try:
@@ -433,7 +401,7 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
                 references=[[r] for r in refs_validas]
             )['bleu'], 4)
         except Exception as e:
-            print(f"[!] BLEU global falló: {e}")
+            print(f"BLEU global falló: {e}")
             bleu_score = 0.0
 
         # BERTScore en español (cambio importante: lang="es", model_type="xlm-roberta-base")
@@ -452,7 +420,7 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
                 )
                 all_f1.extend(res['f1'])
             except Exception as e:
-                print(f"[!] BERTScore batch {i} falló: {e}")
+                print(f"BERTScore batch {i} falló: {e}")
                 all_f1.extend([0.0] * len(batch_preds))
 
         bert_score = round(sum(all_f1) / len(all_f1), 4) if all_f1 else 0.0
@@ -495,8 +463,8 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
         kwh = KWH_POR_TOKEN.get(model_id, 0.0000002)
 
         # Cálculo de tokens correcto:
-        #   Input  = pregunta + prompt sistema
-        #   Output = respuesta generada por el modelo
+        # Input  = pregunta + prompt sistema
+        # Output = respuesta generada por el modelo
         tok_in_list, tok_out_list, costes, co2s = [], [], [], []
         for i in range(len(preds_validas)):
             ti = TOKENS_PROMPT_SISTEMA + n_tokens(pregs_validas[i])
@@ -543,14 +511,12 @@ def run_pipeline(model_key, limit=None, csv_path=DATASET_PATH):
     limpiar_csv_final(output_name, total_filas)
 
 
-# =========================================================
 # MODO FIX: arregla errores y recalcula métricas
-# =========================================================
 def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
     api_key = get_api_key(model_key)
     base_url = get_base_url(model_key)
-    if not api_key or "PEGA_AQUI" in api_key:
-        print(f"[X] API key no configurada para {model_key}.")
+    if not api_key:
+        print(f"API key no configurada para {model_key}.")
         return
 
     model_id = MODELS_CONFIG[model_key]
@@ -673,15 +639,15 @@ def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
     try:
         rouge_score = round(metrica_rouge.compute(predictions=preds, references=refs)['rougeL'], 4)
     except Exception as e:
-        print(f"[!] ROUGE global falló: {e}"); rouge_score = 0.0
+        print(f"ROUGE global falló: {e}"); rouge_score = 0.0
     try:
         meteor_score = round(metrica_meteor.compute(predictions=preds, references=refs)['meteor'], 4)
     except Exception as e:
-        print(f"[!] METEOR global falló: {e}"); meteor_score = 0.0
+        print(f"METEOR global falló: {e}"); meteor_score = 0.0
     try:
         bleu_score = round(metrica_bleu.compute(predictions=preds, references=[[r] for r in refs])['bleu'], 4)
     except Exception as e:
-        print(f"[!] BLEU global falló: {e}"); bleu_score = 0.0
+        print(f"BLEU global falló: {e}"); bleu_score = 0.0
     print(f"  ROUGE-L: {rouge_score} | METEOR: {meteor_score} | BLEU: {bleu_score}")
 
     print(f"Calculando BERTScore en batches de {BATCH_BERT}...")
@@ -695,7 +661,7 @@ def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
             )
             all_f1.extend(res['f1'])
         except Exception as e:
-            print(f"[!] BERTScore batch {i} falló: {e}")
+            print(f"BERTScore batch {i} falló: {e}")
             all_f1.extend([0.0] * len(preds[i:i+BATCH_BERT]))
     bert_score = round(sum(all_f1) / len(all_f1), 4) if all_f1 else 0.0
     print(f"  BERTScore: {bert_score}")
@@ -779,9 +745,6 @@ def fix_errors(model_key, limit=None, csv_path=DATASET_PATH):
     print(f"{'=' * 50}")
 
 
-# =========================================================
-# CLI
-# =========================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipeline OpenRouter SLM (Teleco, multihilo)")
     parser.add_argument("--model", required=True, choices=list(MODELS_CONFIG.keys()),
