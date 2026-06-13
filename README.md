@@ -1,5 +1,7 @@
 # TFG — Diseño e implementación de una aplicación generativa de explicación de contenidos de telecomunicaciones de dominio específico.
 
+[![Disponible en Google Play](https://img.shields.io/badge/Google%20Play-Teleco%20SLM-success?logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=com.telecoslm.app)
+
 Trabajo de Fin de Grado en Ingeniería de Sistemas de Telecomunicación (Universidad CEU San Pablo, Madrid).
 
 Este proyecto compara LLMs, SLMs, Mini-SLMs, modelos fine-tuneados y un GAN generativo en tareas de generación de texto, evaluados sobre cuatro datasets: WebNLG, ToTTo, KELM y un corpus propio en español del ámbito de telecomunicaciones (*Teleco*, ~24.680 pares Q&A). El resultado final es **TelecoSLM**, una app Flutter que ejecuta el modelo seleccionado (Qwen3 1.7B FT, Q4_K_M GGUF) de forma completamente offline en Android y Windows.
@@ -15,7 +17,7 @@ TFG/
 ├── fine-tuning/                    # Fine-tuning LoRA y fusión de adaptadores
 ├── graficas_y_tests/               # Visualizaciones y análisis estadístico
 ├── app_teleco_slm/                 # App Flutter (Android + Windows)
-├── base_teleco/                    # Dataset Teleco (~24.680 pares Q&A)
+├── base_teleco/                    # Dataset de Telecomunicaciones (~24.680 pares Q&A)
 ├── base_kelm/                      # Dataset KELM filtrado por temática STEM
 ├── splits/                         # Splits train/val/test por subtema
 ├── Manual de Usuario - TelecoSLM.pdf  # Manual de usuario de la app
@@ -26,7 +28,7 @@ TFG/
 
 ## Requisitos e instalación
 
-- Python 3.11.9
+- Python 3.11
 - (Opcional, para fine-tuning y GAN) GPU NVIDIA con CUDA
 - Flutter / Dart (solo para compilar la app)
 
@@ -76,8 +78,8 @@ python base_teleco/hacer_splits.py
 python LLM/pipelineLLM.py --dataset totto --model deepseek
 python SLM/pipelineSLM.py --dataset webnlg --model llama
 python mini-SLM/pipelineminiSLM.py --dataset kelm --model qwen --evaluar
-python SLM/pipelineSLMbbdd.py --model llama          # SLMs sobre Teleco
-python mini-SLM/pipelineminiSLMbbdd.py --model qwen --evaluar  # Mini-SLMs sobre Teleco
+python SLM/pipelineSLMbbdd.py --model llama          # SLMs sobre dataset de Telecomunicaciones
+python mini-SLM/pipelineminiSLMbbdd.py --model qwen --evaluar  # Mini-SLMs sobre dataset de Telecomunicaciones
 
 # 3. Entrenamiento propio
 python GAN/pipeline_gan.py --epochs 100
@@ -109,7 +111,7 @@ Pipeline completo de la GAN generativa de texto (Conditional SeqGAN con Gumbel-S
 
 ## fine-tuning/
 
-Fine-tuning LoRA de Gemma 3 1B, Llama 3.2 1B y Qwen3 1.7B sobre el dataset Teleco (LR=2e-4, rank=8, alpha=16, dropout=0.05, 3 epochs). Incluye fusión de adaptadores LoRA con los modelos base, inferencia sobre dataset de Telecomunciaciones y KELM, y cálculo de métricas.
+Fine-tuning LoRA de Gemma 3 1B, Llama 3.2 1B y Qwen3 1.7B sobre el dataset Teleco (LR=2e-4, rank=8, alpha=16, dropout=0.05, 3 epochs). Incluye fusión de adaptadores LoRA con los modelos base, inferencia sobre dataset de Telecomunicaciones y KELM, y cálculo de métricas.
 
 ## graficas_y_tests/
 
@@ -117,7 +119,7 @@ Generación de gráficas y tests estadísticos sobre los resultados de los pipel
 
 - Boxplots, violin plots, bar plots, diagramas de diferencia crítica (CD), Q-Q plots y gráficas de tiempos de inferencia.
 - Tests de Friedman, Nemenyi post-hoc, Wilcoxon con tamaño de efecto r e intervalos de confianza bootstrap al 95%.
-- Dos grupos experimentales: **Grupo 1** (LLM vs SLM vs Mini-SLM, WebNLG/ToTTo/KELM) y **Grupo 2** (Mini-SLM base vs Mini-SLM fine-tuned vs GAN, dataset de Telecomunicaciones).
+- Dos grupos experimentales: **Grupo 1** (LLM vs SLM vs Mini-SLM, WebNLG/ToTTo/KELM) y **Grupo 2** (Mini-SLM base vs Mini-SLM fine-tuned vs GAN, Teleco).
 
 ## app_teleco_slm/
 
@@ -127,6 +129,8 @@ App Flutter multiplataforma que permite consultar información de telecomunicaci
 - **Windows**: usa `llama-server.exe` vía HTTP local.
 - Filtro de tokens de modo thinking con auto-retry.
 - System prompt few-shot optimizado para respuestas en español.
+
+La app está publicada en Google Play: **[Teleco SLM](https://play.google.com/store/apps/details?id=com.telecoslm.app)**.
 
 La guía de instalación y uso de la app está en [Manual de Usuario - TelecoSLM.pdf](Manual%20de%20Usuario%20-%20TelecoSLM.pdf).
 
@@ -147,7 +151,7 @@ Dataset KELM filtrado por temática STEM (~60.000 filas). Incluye el script de f
 | WebNLG | EN | ~13.000 | Tripletas RDF → texto |
 | ToTTo | EN | ~120.000 | Tablas → descripciones |
 | KELM | EN | ~60.000 | Grafos de conocimiento → texto (filtrado STEM) |
-| Teleco | ES | ~24.680 | Plan de estudios de telecomunicaciones CEU → Q&A |
+| Teleco | ES | ~24.680 | Plan de estudios del Grado en Ingeniería de Sistemas de Telecomunicación CEU → Q&A |
 
 ## Tecnologías principales
 
