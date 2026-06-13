@@ -1,14 +1,18 @@
-# pip install pandas numpy
 """
-Rankings de Modelos por Métrica × Dataset.
-- Flag --modo: 'media' o 'mediana' para elegir el criterio de ranking.
-- Grupo 1: 9 modelos (LLM + SLM + mini-SLM) en WebNLG, ToTTo, KELM.
-- Grupo 2: 7 modelos (GAN + mini-SLM base + FT) en Teleco.
-- Genera un .txt con los rankings y un .csv con los valores.
+Rankings de modelos por metrica y dataset, ordenados por media o por mediana
+(--modo). Indica si el ranking cambiaria al usar el otro criterio.
 
-USO:
-  python rankings.py --input-dir resultados --modo media
-  python rankings.py --input-dir resultados --modo mediana
+Grupo 1: 9 modelos sobre WebNLG, ToTTo y KELM.
+Grupo 2: 7 modelos sobre Teleco.
+
+Genera Rankings_<modo>.txt y Rankings_<modo>.csv.
+
+Requisitos:
+    pip install pandas numpy
+
+Uso:
+    python ranking.py --input-dir resultados --modo media
+    python ranking.py --input-dir resultados --modo mediana
 """
 import pandas as pd
 import numpy as np
@@ -16,7 +20,6 @@ import glob
 import os
 import argparse
 
-# =====================================================================
 METRICAS = {
     'ROUGE_L':      ('ROUGE-L',           'Mayor es mejor'),
     'METEOR':       ('METEOR',            'Mayor es mejor'),

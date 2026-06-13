@@ -1,21 +1,18 @@
-# pip install pandas numpy
 """
-Intervalos de Confianza Bootstrap (95%).
-Calcula el intervalo de confianza del percentil bootstrap para la media
-de cada métrica × modelo × dataset.
+Intervalos de confianza bootstrap (95%) para la media de cada metrica por modelo
+y dataset. Metodo del percentil (2.5%-97.5%), 10.000 iteraciones, semilla fija.
+Detecta solapamientos de intervalo entre modelos.
 
-- n_bootstrap = 10000 iteraciones
-- Método: percentil (2.5% - 97.5%)
-- Seed fijo para reproducibilidad
+Grupo 1: 9 modelos sobre WebNLG, ToTTo y KELM.
+Grupo 2: 7 modelos sobre Teleco.
 
-Grupo 1: 9 modelos en WebNLG, ToTTo, KELM.
-Grupo 2: 7 modelos en Teleco.
+Genera Reporte_Bootstrap.txt y Reporte_Bootstrap.csv.
 
-Genera:
-  - Reporte_Bootstrap.txt
-  - Reporte_Bootstrap.csv
+Requisitos:
+    pip install pandas numpy
 
-USO: python bootstrap_ci.py --input-dir resultados
+Uso:
+    python bootstrap.py --input-dir resultados
 """
 import pandas as pd
 import numpy as np
@@ -23,7 +20,6 @@ import glob
 import os
 import argparse
 
-# =====================================================================
 METRICAS = {
     'ROUGE_L':      ('ROUGE-L',           'Mayor es mejor'),
     'METEOR':       ('METEOR',            'Mayor es mejor'),

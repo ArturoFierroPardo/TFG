@@ -1,9 +1,15 @@
-# pip install pandas matplotlib numpy
 """
-Violinplots unificados — G1 (9 modelos × 3 datasets) + G2 (7 modelos × Teleco).
-Filtra outliers extremos (IQR×3) antes de dibujar.
+Violinplots de todas las metricas a partir de los CSV por fila. Filtra outliers
+extremos (IQR x 3) antes de dibujar.
 
-USO: python violinplots.py --input-dir resultados --output-dir violinplots
+Grupo 1: 9 modelos sobre WebNLG, ToTTo y KELM.
+Grupo 2: 7 modelos sobre Teleco (agrupados en GAN, base y fine-tuned).
+
+Requisitos:
+    pip install pandas matplotlib numpy
+
+Uso:
+    python violinplots.py --input-dir resultados --output-dir violinplots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -19,7 +25,7 @@ plt.rcParams.update({
     'xtick.direction': 'in', 'ytick.direction': 'in',
 })
 
-# ── Paleta unificada ──────────────────────────────────────────────────────
+# Paleta unificada
 COLORES = {
     'DeepSeek': '#2E75B6', 'Llama 70B': '#D6604D', 'Qwen 72B': '#E08214',
     'Gemma 9B': '#4393C3', 'Llama 3B': '#7570B3', 'Qwen 7B': '#1B7837',
@@ -81,7 +87,7 @@ ARCHIVO_MAPA = [
 ]
 
 
-# ── Utilidades ────────────────────────────────────────────────────────────
+# Utilidades
 def hex_to_rgba(c, alpha=0.3):
     h = c.lstrip('#')
     r, g, b = (int(h[i:i+2], 16) / 255 for i in (0, 2, 4))
@@ -125,7 +131,7 @@ def cargar_todos(input_dir):
     return df_total
 
 
-# ── Dibujar violins en un Axes ────────────────────────────────────────────
+# Dibujar violins en un Axes
 def dibujar_violins(ax, df, columna, modelos_por_grupo, group_labels,
                     box_w=0.012, gap=0.025, group_gap=0.08):
     current_x = 0
@@ -202,7 +208,7 @@ def dibujar_violins(ax, df, columna, modelos_por_grupo, group_labels,
         ax.set_ylim(max(0, gmin - rango * 0.05), gmax + rango * 0.05)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────
+# Helpers
 def grupos_g1(modelos, datasets):
     return [[(m, ds) for m in modelos] for ds in datasets], datasets
 
@@ -216,7 +222,7 @@ def grupos_g2(modelos_presentes):
     return groups, labels
 
 
-# ── Generador genérico ────────────────────────────────────────────────────
+# Generador genérico
 def generar_violins(df, orden, datasets, prefijo, output_dir, es_teleco=False):
     modelos = [m for m in orden if m in df['Modelo'].unique()]
     ds_pres = [d for d in datasets if d in df['Dataset'].unique()]
@@ -260,7 +266,7 @@ def generar_violins(df, orden, datasets, prefijo, output_dir, es_teleco=False):
         print(f"  {fname}")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
+# Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default="resultados")

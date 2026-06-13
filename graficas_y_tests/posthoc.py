@@ -1,13 +1,19 @@
-# pip install pandas numpy scipy scikit-posthocs matplotlib
 """
-CD Diagrams mejorados + Reporte Post-Hoc:
-  - Nombres de modelo más grandes
-  - Leyenda LLM / SLM / Mini-SLM
-  - Por separado: un CD por métrica × dataset
-  - Juntos: las 4 métricas de calidad en un grid 2×2 por dataset
-  - Reporte: Reporte_PostHoc.txt + resultados_posthoc_pares.csv
+Analisis post-hoc y diagramas de diferencia critica (CD).
 
-USO: python posthoc.py --input-dir resultados
+Calcula el test de Nemenyi (p ajustado) y el tamano de efecto de Wilcoxon
+(r = Z/raizN) por pares de modelos, y dibuja los diagramas CD por metrica y dataset
+(individuales y en grid 2x2 de las cuatro metricas de calidad). Genera
+Reporte_PostHoc.txt y Reporte_PostHoc.csv.
+
+Grupo 1: 9 modelos sobre WebNLG, ToTTo y KELM.
+Grupo 2: 7 modelos sobre Teleco.
+
+Requisitos:
+    pip install pandas numpy scipy scikit-posthocs matplotlib
+
+Uso:
+    python posthoc.py --input-dir resultados --output-dir CD_diagrams
 """
 import pandas as pd
 import numpy as np
@@ -23,7 +29,7 @@ plt.rcParams.update({
     'figure.facecolor': 'white', 'axes.facecolor': 'white',
 })
 
-# ── Config ────────────────────────────────────────────────────────────────
+# Config
 METRICAS_CALIDAD = {
     'ROUGE_L':   'ROUGE-L',
     'METEOR':    'METEOR',
@@ -139,7 +145,7 @@ def _paleta_completa(modelos_presentes, colores_ref, color_defecto):
     return {m: colores_ref.get(m, color_defecto) for m in modelos_presentes}
 
 
-# ── Carga datos ───────────────────────────────────────────────────────────
+# Carga datos
 def cargar_todos(input_dir):
     df_total = pd.DataFrame()
     for archivo in glob.glob(os.path.join(input_dir, "metricas_por_fila_*.csv")):
@@ -171,7 +177,7 @@ def cargar_todos(input_dir):
     return df_total
 
 
-# ── Leyendas ──────────────────────────────────────────────────────────────
+# Leyendas
 def añadir_leyenda(fig, bajo_grid=False):
     modelos_g1_ord = ['DeepSeek','Llama 70B','Qwen 72B',
                       'Gemma 9B','Llama 3B','Qwen 7B',
@@ -195,7 +201,7 @@ def añadir_leyenda_g2(fig, bajo_grid=False):
                title='Modelo', title_fontsize=16)
 
 
-# ── CD diagram individual G1 ──────────────────────────────────────────────
+# CD diagram individual G1
 def cd_individual(datos, titulo, fname):
     df_m = pd.DataFrame(datos)
     ranks = df_m.rank(axis=1, ascending=False).mean()
@@ -229,7 +235,7 @@ def cd_individual(datos, titulo, fname):
     print(f"  OK: {fname}")
 
 
-# ── CD grid 2×2 G1 ────────────────────────────────────────────────────────
+# CD grid 2×2 G1
 def cd_grid_4metricas(datos_dict, ds, fname):
     metricas_orden = ['ROUGE_L', 'METEOR', 'BLEU', 'BERTScore']
     nombres = METRICAS_CALIDAD
@@ -280,7 +286,7 @@ def cd_grid_4metricas(datos_dict, ds, fname):
     print(f"  OK grid: {fname}")
 
 
-# ── CD diagram individual G2 ──────────────────────────────────────────────
+# CD diagram individual G2
 def cd_individual_g2(datos, titulo, fname):
     df_m = pd.DataFrame(datos)
     ranks = df_m.rank(axis=1, ascending=False).mean()
@@ -314,7 +320,7 @@ def cd_individual_g2(datos, titulo, fname):
     print(f"  OK: {fname}")
 
 
-# ── CD grid 2×2 G2 ────────────────────────────────────────────────────────
+# CD grid 2×2 G2
 def cd_grid_4metricas_g2(datos_dict, fname):
     metricas_orden = ['ROUGE_L', 'METEOR', 'BLEU', 'BERTScore']
     nombres = METRICAS_CALIDAD
@@ -363,7 +369,7 @@ def cd_grid_4metricas_g2(datos_dict, fname):
     print(f"  OK grid: {fname}")
 
 
-# ── Métricas del reporte (incluye Tiempo y CO2 además de calidad) ─────────
+# Métricas del reporte (incluye Tiempo y CO2 además de calidad)
 METRICAS_REPORTE = {
     'ROUGE_L':      ('ROUGE-L',           'Mayor es mejor'),
     'METEOR':       ('METEOR',            'Mayor es mejor'),
@@ -374,7 +380,7 @@ METRICAS_REPORTE = {
 }
 
 
-# ── Reporte Post-Hoc ──────────────────────────────────────────────────────
+# Reporte Post-Hoc
 def formatear_p(p):
     if p == 0.0 or p < 1e-300:
         return "< 0.001"
@@ -582,7 +588,7 @@ def generar_reporte_posthoc(todos_resultados, output_dir):
     print(f"✓ CSV:     {ruta_csv}")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
+# Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default="resultados")
@@ -655,7 +661,7 @@ if __name__ == "__main__":
             r = ejecutar_posthoc_completo(datos, GRUPO_1['nombre'], ds, col_met, nombre_met, direccion)
             if r: todos_posthoc.append(r)
 
-    # ── Grupo 2: Teleco ──
+    # Grupo 2: Teleco
     print("\n=== Teleco (Grupo 2) ===")
     modelos_g2 = GRUPO_2['modelos']
     datos_grid_g2 = {}
@@ -698,7 +704,7 @@ if __name__ == "__main__":
         r = ejecutar_posthoc_completo(datos, GRUPO_2['nombre'], 'Teleco', col_met, nombre_met, direccion)
         if r: todos_posthoc.append(r)
 
-    # ── Generar reporte ──
+    # Generar reporte
     print(f"\n── Generando reporte post-hoc ({len(todos_posthoc)} bloques) ──")
     if todos_posthoc:
         generar_reporte_posthoc(todos_posthoc, output_dir)

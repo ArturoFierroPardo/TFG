@@ -1,10 +1,15 @@
-# pip install pandas matplotlib numpy
 """
-Boxplots unificados — individuales + grids 2×2.
-  G1: 9 modelos × 3 datasets (WebNLG, ToTTo, KELM)
-  G2: 7 modelos × Teleco (GAN, Mini-SLM Base, Mini-SLM FT)
+Boxplots de las metricas de calidad a partir de los CSV por fila. Genera figuras
+individuales por metrica y grids 2x2.
 
-USO: python boxplots.py --input-dir resultados --output-dir boxplots
+Grupo 1: 9 modelos sobre WebNLG, ToTTo y KELM.
+Grupo 2: 7 modelos sobre Teleco (agrupados en GAN, base y fine-tuned).
+
+Requisitos:
+    pip install pandas matplotlib numpy
+
+Uso:
+    python boxplots.py --input-dir resultados --output-dir boxplots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -20,7 +25,7 @@ plt.rcParams.update({
     'xtick.direction': 'in', 'ytick.direction': 'in',
 })
 
-# ── Paleta unificada ──────────────────────────────────────────────────────
+# Paleta unificada
 COLORES = {
     'DeepSeek':      '#2E75B6',
     'Llama 70B':     '#D6604D',
@@ -111,7 +116,7 @@ ARCHIVO_MAPA = [
 ]
 
 
-# ── Utilidades ────────────────────────────────────────────────────────────
+# Utilidades
 def hex_to_rgba(c, alpha=0.25):
     h = c.lstrip('#')
     r, g, b = (int(h[i:i+2], 16) / 255 for i in (0, 2, 4))
@@ -147,7 +152,7 @@ def cargar_todos(input_dir):
     return df_total
 
 
-# ── Dibujar boxplot en un Axes (reutilizable para individuales y grids) ──
+# Dibujar boxplot en un Axes (reutilizable para individuales y grids)
 def dibujar_boxplots_ax(ax, df, columna, modelos_por_grupo, group_labels,
                         box_w=0.012, gap=0.020, group_gap=0.08, hide_xlabel=False):
     """
@@ -247,7 +252,7 @@ def dibujar_boxplots_ax(ax, df, columna, modelos_por_grupo, group_labels,
     ax.set_ylim(gmin - rango * 0.05, gmax + rango * 0.05)
 
 
-# ── Helpers para construir modelos_por_grupo ──────────────────────────────
+# Helpers para construir modelos_por_grupo
 def grupos_g1(modelos, datasets):
     """Un grupo por dataset, todos los modelos dentro."""
     return (
@@ -267,9 +272,6 @@ def grupos_g2(modelos_presentes):
     return groups, labels
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# INDIVIDUALES
-# ══════════════════════════════════════════════════════════════════════════
 def boxplots_individuales(df, orden, datasets, colores_ref, prefijo, output_dir, es_teleco=False):
     modelos = [m for m in orden if m in df['Modelo'].unique()]
     ds_presentes = [d for d in datasets if d in df['Dataset'].unique()]
@@ -311,9 +313,6 @@ def boxplots_individuales(df, orden, datasets, colores_ref, prefijo, output_dir,
         print(f"  {fname}")
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# GRIDS 2×2
-# ══════════════════════════════════════════════════════════════════════════
 def grid_2x2(df, mod_groups, labels, modelos_leyenda, titulo_fig, fname):
     fig, axes = plt.subplots(2, 2, figsize=(16, 11),
                              gridspec_kw={'hspace': 0.25, 'wspace': 0.28})
@@ -347,9 +346,6 @@ def grid_2x2(df, mod_groups, labels, modelos_leyenda, titulo_fig, fname):
     print(f"  {fname}")
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default="resultados")
@@ -368,19 +364,19 @@ if __name__ == "__main__":
         exit(1)
     print(f"  {len(df):,} filas | {df['Modelo'].nunique()} modelos | {df['Dataset'].nunique()} datasets\n")
 
-    # ── G1: individuales ──
+    # G1: individuales
     df_g1 = df[df['Dataset'].isin(DATASETS_G1)]
     if not df_g1.empty:
         print("Boxplots individuales G1 (9 modelos × 3 datasets)...")
         boxplots_individuales(df_g1, ORDEN_G1, DATASETS_G1, COLORES, "G1", output_dir)
 
-    # ── G2: individuales ──
+    # G2: individuales
     df_g2 = df[df['Dataset'] == 'Teleco']
     if not df_g2.empty:
         print("\nBoxplots individuales G2 (7 modelos × Teleco)...")
         boxplots_individuales(df_g2, ORDEN_G2, ['Teleco'], COLORES, "G2_Teleco", output_dir, es_teleco=True)
 
-    # ── Grids 2×2 por dataset (G1) ──
+    # Grids 2×2 por dataset (G1)
     modelos_g1 = [m for m in ORDEN_G1 if m in df['Modelo'].unique()]
     if modelos_g1:
         print("\nGrids 2×2 por dataset (G1)...")
@@ -391,7 +387,7 @@ if __name__ == "__main__":
             fname = os.path.join(output_dir, f"grid_{ds}.png")
             grid_2x2(df, mg, lb, modelos_g1, f"Dataset: {ds}", fname)
 
-    # ── Grid 2×2 Teleco (G2) ──
+    # Grid 2×2 Teleco (G2)
     modelos_g2 = [m for m in ORDEN_G2 if m in df['Modelo'].unique()]
     if modelos_g2:
         print("\nGrid 2×2 Teleco (G2)...")

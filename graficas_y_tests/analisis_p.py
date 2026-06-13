@@ -1,16 +1,18 @@
-# pip install pandas numpy scipy
 """
-Tests Estadísticos Globales (Muestras Pareadas).
-- Todas las métricas: Friedman (no paramétrico).
+Tests estadisticos globales sobre muestras pareadas (test de Friedman, no
+parametrico, alpha = 0.05) para todas las metricas.
 
-- α = 0.05
+Grupo 1: 9 modelos (LLM + SLM + Mini-SLM) sobre WebNLG, ToTTo y KELM.
+Grupo 2: 7 modelos (GAN + Mini-SLM base + Mini-SLM FT) sobre Teleco.
 
-Grupo 1: 9 modelos (LLM + SLM + mini-SLM) en WebNLG, ToTTo, KELM.
-Grupo 2: 7 modelos (GAN + mini-SLM base + mini-SLM FT) en Teleco.
+Lee los CSV metricas_por_fila_*.csv y genera Reporte_Tests_Globales.txt y
+resultados_tests_globales.csv (este ultimo sirve de entrada al post-hoc).
 
-Genera: Reporte_Tests_Globales.txt
+Requisitos:
+    pip install pandas numpy scipy
 
-USO: python analisis_global.py --input-dir resultados
+Uso:
+    python analisis_p.py --input-dir resultados
 """
 import pandas as pd
 import numpy as np
@@ -19,9 +21,6 @@ import glob
 import os
 import argparse
 
-# =====================================================================
-# CONFIGURACIÓN
-# =====================================================================
 METRICAS = {
     'ROUGE_L':      ('ROUGE-L',           'Mayor es mejor',  False),
     'METEOR':       ('METEOR',            'Mayor es mejor',  False),
@@ -191,8 +190,8 @@ def ejecutar_tests(df, grupo, f):
 
             listas = list(datos_por_modelo.values())
 
-            # --- Test ---
-            # --- Test (con subsampling si N > MAX_N para p-valores informativos) ---
+            # Test
+            # Test (con subsampling si N > MAX_N para p-valores informativos)
             MAX_N = 500  # Submuestra para p-valores legibles
             if longitud_min > MAX_N:
                 np.random.seed(42)
@@ -216,7 +215,7 @@ def ejecutar_tests(df, grupo, f):
                 f.write(f"\n  ⚠ {nombre}: error en test — {e}\n")
                 continue
 
-            # --- Ranking ---
+            # Ranking
             resumen_modelos = []
             for m, datos in datos_por_modelo.items():
                 media = np.mean(datos)
@@ -227,7 +226,7 @@ def ejecutar_tests(df, grupo, f):
             reverse = "Mayor" in direccion
             resumen_modelos.sort(key=lambda x: x[1], reverse=reverse)
 
-            # --- Escribir ---
+            # Escribir
             significativo = p < 0.05
             marca = "✓ SIGNIFICATIVO" if significativo else "✗ No significativo"
 
@@ -289,7 +288,7 @@ if __name__ == "__main__":
         f.write("═"*70 + "\n")
         f.write(f"\nMetodología:\n")
         f.write(f"  • Todas las métricas → Test de Friedman (no paramétrico)\n")
-        
+
         f.write(f"  • Nivel de significancia: α = 0.05\n")
         f.write(f"  • Datos pareados: se trunca al mínimo de filas entre modelos\n")
 

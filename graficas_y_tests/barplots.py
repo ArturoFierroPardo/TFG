@@ -1,9 +1,14 @@
-# pip install pandas matplotlib numpy
 """
-Barplots globales — G1 (9 modelos × 3 datasets) + G2 (7 modelos × Teleco).
-Genera Coste, CO2, Tiempo a partir de los CSVs por fila.
+Barplots globales de coste, CO2 y tiempo a partir de los CSV por fila.
 
-USO: python barplots.py --input-dir resultados --output-dir barplots
+Grupo 1: 9 modelos sobre WebNLG, ToTTo y KELM.
+Grupo 2: 7 modelos sobre Teleco.
+
+Requisitos:
+    pip install pandas matplotlib numpy
+
+Uso:
+    python barplots.py --input-dir resultados --output-dir barplots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,7 +23,7 @@ plt.rcParams.update({
     'xtick.direction': 'in', 'ytick.direction': 'in',
 })
 
-# ── G1: 9 modelos ─────────────────────────────────────────────────────────
+# G1: 9 modelos
 COLORES_G1 = {
     'DeepSeek':    '#2E75B6',
     'Llama 70B':   '#D6604D',
@@ -69,7 +74,7 @@ ARCHIVO_MAPA_G1 = [
     ('Qwen_7B_KELM',     'Qwen 7B',   'KELM'),
 ]
 
-# ── G2: 7 modelos Teleco ──────────────────────────────────────────────────
+# G2: 7 modelos Teleco
 COLORES_G2 = {
     'GAN':              '#E41A1C',
     'Gemma 3.1B':       '#E7298A',
@@ -96,7 +101,7 @@ ARCHIVO_MAPA_G2 = [
     ('Qwen3_1.7B_FT_valtest',  'Qwen3 1.7B FT',  'Teleco'),
 ]
 
-# ── Métricas a graficar ───────────────────────────────────────────────────
+# Métricas a graficar
 METRICAS_BAR = [
     ('Coste_USD',    'Coste Total (USD)',           'USD',           '${:.4f}'),
     ('CO2_gramos',   'CO$_2$ Total (gramos)',       'gramos CO$_2$', '{:.1f}g'),
@@ -104,7 +109,7 @@ METRICAS_BAR = [
 ]
 
 
-# ── Utilidades ────────────────────────────────────────────────────────────
+# Utilidades
 def hex_to_rgba(hex_color, alpha=0.25):
     h = hex_color.lstrip('#')
     r, g, b = tuple(int(h[i:i+2], 16) / 255 for i in (0, 2, 4))
@@ -140,7 +145,7 @@ def cargar(input_dir, archivo_mapa):
     return df_total
 
 
-# ── Barplot genérico ──────────────────────────────────────────────────────
+# Barplot genérico
 def generar_barplots(df, datasets, orden_modelos, colores, prefijo, output_dir):
     modelos_presentes = [m for m in orden_modelos if m in df['Modelo'].unique()]
     datasets_presentes = [d for d in datasets if d in df['Dataset'].unique()]
@@ -223,7 +228,7 @@ def generar_barplots(df, datasets, orden_modelos, colores, prefijo, output_dir):
         print(f"  {fname}")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
+# Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default="resultados")
@@ -239,7 +244,7 @@ if __name__ == "__main__":
         print(f"Error: No se encuentra '{input_dir}'")
         exit(1)
 
-    # ── G1: 9 modelos × 3 datasets ──
+    # G1: 9 modelos × 3 datasets
     print("Cargando G1 (9 modelos × 3 datasets)...")
     df_g1 = cargar(input_dir, ARCHIVO_MAPA_G1)
     if not df_g1.empty:
@@ -249,7 +254,7 @@ if __name__ == "__main__":
     else:
         print("  Sin datos para G1.")
 
-    # ── G2: 7 modelos × Teleco ──
+    # G2: 7 modelos × Teleco
     print("\nCargando G2 (7 modelos × Teleco)...")
     df_g2 = cargar(input_dir, ARCHIVO_MAPA_G2)
     if not df_g2.empty:

@@ -1,15 +1,17 @@
-# pip install evaluate rouge_score bert_score sacrebleu nltk tqdm pandas tiktoken
 """
-Calcula TODAS las métricas que falten para todos los results_*.csv.
-Genera/actualiza metricas_por_fila_*.csv con las columnas:
-  ROUGE_L, METEOR, BLEU, BERTScore, Time_seconds,
-  Tokens_Input, Tokens_Output, Coste_USD, CO2_gramos
+Calcula y completa las metricas por fila de todos los results_*.csv.
 
-Si el metricas_por_fila ya existe, solo calcula las columnas faltantes.
+Genera o actualiza metricas_por_fila_*.csv con las columnas ROUGE_L, METEOR, BLEU,
+BERTScore, Time_seconds, Tokens_Input, Tokens_Output, Coste_USD y CO2_gramos. Si el
+fichero de metricas ya existe, solo calcula las columnas que falten. BERTScore usa
+distilbert en ingles para los datasets genericos y xlm-roberta en espanol para Teleco.
 
-USO:
-  python calcula_metricas.py --input-dir resultados
-  python calcula_metricas.py --input-dir resultados --solo results_teleco_Qwen3_1.7B.csv
+Requisitos:
+    pip install evaluate rouge_score bert_score sacrebleu nltk tqdm pandas tiktoken
+
+Uso:
+    python calcula_metricas.py --input-dir resultados
+    python calcula_metricas.py --input-dir resultados --solo results_teleco_Qwen3_1.7B.csv
 """
 import csv, os, glob, argparse
 import pandas as pd
@@ -17,9 +19,7 @@ import numpy as np
 from io import StringIO
 from tqdm import tqdm
 
-# ══════════════════════════════════════════════════════════════════════════
 # MAPEO: nombre base del results → (modelo_legible, dataset, precio_key)
-# ══════════════════════════════════════════════════════════════════════════
 
 # LLM / SLM (formato: results_{dataset}_{api-model-name}.csv)
 MODELO_API = {
@@ -62,18 +62,13 @@ MAPA_DIRECTO = {
     'Gemma_3_1B_FT_valtest':  ('Gemma_3_1B_FT_valtest',   'mini-gemma'),
     'Llama_1B_FT_valtest':    ('Llama_1B_FT_valtest',     'mini-llama'),
     'Qwen3_1.7B_FT_valtest': ('Qwen3_1.7B_FT_valtest',   'mini-qwen'),
-    # FT — KELM
     'kelm_gemma-3-1b_ft':     ('kelm_gemma-3-1b_ft',      'mini-gemma'),
     'kelm_llama-1b_ft':       ('kelm_llama-1b_ft',        'mini-llama'),
     'kelm_qwen-1.7b_ft':     ('kelm_qwen-1.7b_ft',       'mini-qwen'),
-    # GAN
     'GAN_valtest':             ('GAN_valtest',              'gan'),
     'kelm_GAN':                ('kelm_GAN',                 'gan'),
 }
 
-# ══════════════════════════════════════════════════════════════════════════
-# PRECIOS Y CO2
-# ══════════════════════════════════════════════════════════════════════════
 PRECIOS = {
     "deepseek":  {"input": 0.0000008,  "output": 0.000002},
     "llama-70b": {"input": 0.00000059, "output": 0.00000079},
@@ -98,9 +93,6 @@ CO2_POR_KWH = 475
 TOKENS_PROMPT_SISTEMA = 45
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# UTILIDADES
-# ══════════════════════════════════════════════════════════════════════════
 def contar_tokens(texto):
     try:
         import tiktoken
@@ -171,9 +163,6 @@ def leer_results(archivo):
     return filas
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# CÁLCULO DE MÉTRICAS
-# ══════════════════════════════════════════════════════════════════════════
 def calcular_faltantes(df_met, filas, nombre_metricas, batch_bert=1000):
     """
     Dado un DataFrame de métricas (puede estar vacío) y las filas del results,
@@ -214,7 +203,6 @@ def calcular_faltantes(df_met, filas, nombre_metricas, batch_bert=1000):
                 tiempos.append(1.5)
         df_met['Time_seconds'] = tiempos
 
-    # ROUGE-L
     if 'ROUGE_L' in faltantes:
         import evaluate
         met = evaluate.load('rouge')
@@ -227,7 +215,6 @@ def calcular_faltantes(df_met, filas, nombre_metricas, batch_bert=1000):
                 rouges.append(0.0)
         df_met['ROUGE_L'] = rouges
 
-    # METEOR
     if 'METEOR' in faltantes:
         import evaluate
         met = evaluate.load('meteor')
@@ -240,7 +227,6 @@ def calcular_faltantes(df_met, filas, nombre_metricas, batch_bert=1000):
                 meteors.append(0.0)
         df_met['METEOR'] = meteors
 
-    # BLEU
     if 'BLEU' in faltantes:
         import evaluate
         met = evaluate.load('bleu')
@@ -322,9 +308,6 @@ def rellenar_coste_co2(df_met, precio_key):
     df_met.drop(columns=['_tok_in', '_tok_out'], inplace=True, errors='ignore')
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default="resultados",

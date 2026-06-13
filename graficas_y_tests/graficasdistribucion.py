@@ -1,12 +1,16 @@
-# pip install pandas matplotlib numpy seaborn
 """
-Generador Maestro de Gráficas KDE (Montañas de Distribución).
-- 13 Colores únicos.
-- Filtra EXACTAMENTE las métricas y las BBDD que aplican a cada liga.
-- Unifica 'teleco' y 'valtest' bajo el mismo nombre: 'Teleco'.
-- Crea subcarpetas por modelo.
+Graficas de densidad (KDE) de las distribuciones de cada metrica.
 
-USO: python distribucion_fases.py --input-dir resultados
+Genera dos tipos de figura por escenario y dataset: individuales (una curva por
+modelo, organizadas en subcarpetas) y agrupadas (comparativa de todos los modelos
+del escenario). Filtra outliers extremos por IQR para que el KDE no se deforme y
+unifica las variantes 'teleco' y 'valtest' bajo el nombre 'Teleco'.
+
+Requisitos:
+    pip install pandas matplotlib numpy seaborn
+
+Uso:
+    python graficasdistribucion.py --input-dir resultados
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -25,9 +29,7 @@ plt.rcParams.update({
     'ytick.direction': 'in',
 })
 
-# =====================================================================
 # 1. PALETA DE COLORES (13 Colores Únicos)
-# =====================================================================
 COLORES = {
     'DeepSeek':      '#3366CC',
     'Llama 70B':     '#DC3912',
@@ -44,9 +46,6 @@ COLORES = {
     'Qwen3 1.7B FT': '#329262',
 }
 
-# =====================================================================
-# 2. SEPARACIÓN EXACTA DE MÉTRICAS
-# =====================================================================
 # Las 7 métricas para los modelos Comerciales y Minis
 METRICAS_COMPLETAS = {
     'ROUGE_L':      'ROUGE-L',
@@ -67,9 +66,7 @@ METRICAS_GAN_FT = {
     'Time_seconds': 'Tiempo (Segundos)'
 }
 
-# =====================================================================
 # 3. LAS LIGAS (Configuración estricta de qué se cruza con qué)
-# =====================================================================
 ESCENARIOS = {
     "1_LLMs": {
         "datasets": ["WebNLG", "ToTTo", "KELM"],
@@ -82,7 +79,7 @@ ESCENARIOS = {
         "metricas": METRICAS_COMPLETAS
     },
     "3_MiniSLMs_Teleco": {
-        "datasets": ["Teleco"], 
+        "datasets": ["Teleco"],
         "modelos":  ['Gemma 3 1B', 'Llama 1B', 'Qwen3 1.7B'],
         "metricas": METRICAS_COMPLETAS
     },
@@ -92,7 +89,7 @@ ESCENARIOS = {
         "metricas": METRICAS_COMPLETAS
     },
     "4_GAN_vs_Finetuning": {
-        "datasets": ["Teleco"], 
+        "datasets": ["Teleco"],
         "modelos":  ['GAN', 'Gemma 3 1B FT', 'Llama 1B FT', 'Qwen3 1.7B FT'],
         "metricas": METRICAS_GAN_FT
     }
@@ -101,13 +98,13 @@ ESCENARIOS = {
 def cargar_todos(input_dir):
     df_total = pd.DataFrame()
     archivos = glob.glob(os.path.join(input_dir, "metricas_por_fila_*.csv"))
-    
+
     for archivo in archivos:
         try:
             df_temp = pd.read_csv(archivo)
             base_name = os.path.basename(archivo).replace("metricas_por_fila_", "").replace(".csv", "")
-            
-            # --- Extractor inteligente de nombres y UNIFICADOR DE BBDD ---
+
+            # Extractor inteligente de nombres y UNIFICADOR DE BBDD
             # Mini-SLMs en bases genéricas (formato invertido: dataset_modelo)
             if base_name.startswith("webNLG_"):
                 ds = "WebNLG"
@@ -140,7 +137,7 @@ def cargar_todos(input_dir):
 
             modelo = modelo.replace("_", " ")
             mod_low = modelo.lower()
-            
+
             # Normalización
             if mod_low == 'gemma 9b': modelo = 'Gemma 9B'
             elif mod_low == 'deepseek': modelo = 'DeepSeek'
@@ -163,7 +160,7 @@ def cargar_todos(input_dir):
             for col_metrica in METRICAS_COMPLETAS.keys():
                 if col_metrica in df_temp.columns:
                     df_temp[col_metrica] = pd.to_numeric(df_temp[col_metrica], errors='coerce')
-            
+
             df_total = pd.concat([df_total, df_temp], ignore_index=True)
         except Exception as e:
             print(f"Error cargando {archivo}: {e}")
@@ -207,16 +204,16 @@ def ajustar_xlim(ax, serie_filtrada):
 
 def generar_individuales(df):
     generados = set() # Para evitar que una gráfica se repita si un modelo aparece en varias fases
-    
+
     for escenario_nombre, config in ESCENARIOS.items():
         for ds in config["datasets"]:
             for modelo in config["modelos"]:
-                
+
                 # Creamos subcarpeta del modelo
                 nombre_carpeta = modelo.replace(" ", "_")
                 ruta_carpeta = os.path.join("Graficas_Individuales", nombre_carpeta)
                 os.makedirs(ruta_carpeta, exist_ok=True)
-                
+
                 for col_metrica, nombre_metrica in config["metricas"].items():
                     clave_grafica = (modelo, ds, col_metrica)
                     if clave_grafica in generados: continue
@@ -261,7 +258,7 @@ def generar_agrupadas(df):
                 if col_metrica not in df.columns: continue
 
                 df_filtrado = df[(df['Dataset'] == ds) & (df['Modelo'].isin(config["modelos"])) & (df[col_metrica].notna())]
-                
+
                 # Comprobamos que haya datos de al menos un modelo para dibujar
                 if df_filtrado.empty: continue
 
@@ -282,17 +279,15 @@ def generar_agrupadas(df):
                 fig, ax = plt.subplots(figsize=(10, 6))
 
                 sns.kdeplot(
-                    data=df_plot, x=col_metrica, hue='Modelo', fill=True,           
-                    alpha=0.25, linewidth=2.0, palette=COLORES, common_norm=False,   
+                    data=df_plot, x=col_metrica, hue='Modelo', fill=True,
+                    alpha=0.25, linewidth=2.0, palette=COLORES, common_norm=False,
                     ax=ax, hue_order=[m for m in config["modelos"] if m in df_plot['Modelo'].unique()]
                 )
 
                 # Eje X al rango filtrado con margen natural
                 ajustar_xlim(ax, serie_global)
 
-                # === EL TÍTULO LIMPIO ===
                 ax.set_title(f"Comparativa de Distribución\n{nombre_metrica} - Dataset: {ds}", fontsize=14, pad=15)
-                # ========================
 
                 ax.set_xlabel(nombre_metrica, fontsize=12)
                 ax.set_ylabel("Densidad (Frecuencia)", fontsize=12)
@@ -300,7 +295,7 @@ def generar_agrupadas(df):
                 ax.set_axisbelow(True)
 
                 if ax.get_legend() is not None:
-                    sns.move_legend(ax, "upper left", bbox_to_anchor=(1.02, 1), 
+                    sns.move_legend(ax, "upper left", bbox_to_anchor=(1.02, 1),
                                     framealpha=1.0, edgecolor='black', title='Modelos')
                     plt.tight_layout()
 
@@ -320,7 +315,7 @@ if __name__ == "__main__":
 
     print("Cargando, limpiando y unificando nombres a 'Teleco'...")
     df = cargar_todos(args.input_dir)
-    
+
     if df.empty:
         print("Error: No se han cargado datos.")
         exit(1)

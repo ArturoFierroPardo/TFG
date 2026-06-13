@@ -1,10 +1,15 @@
-# pip install pandas matplotlib scipy
 """
-Q-Q Plots unificados:
-  1. Individuales: 2×2 por métrica (un subplot por modelo), subcarpetas por escenario/dataset
-  2. Grids: filas=métricas, columnas=modelos, una imagen por familia × dataset
+Q-Q plots de normalidad para cada metrica y modelo.
 
-USO: python qq_plots.py --input-dir resultados --output-dir QQ_plots
+Genera dos tipos de figura: individuales (un subplot por modelo, en subcarpetas
+por escenario y dataset) y grids (filas = metricas, columnas = modelos, una imagen
+por familia y dataset).
+
+Requisitos:
+    pip install pandas matplotlib scipy
+
+Uso:
+    python qq_plots.py --input-dir resultados --output-dir QQ_plots
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -76,7 +81,7 @@ ESCENARIOS = {
     },
 }
 
-# ── Normalización de nombres ──────────────────────────────────────────────
+# Normalización de nombres
 TABLA_MODELOS = {
     'deepseek': 'DeepSeek', 'llama_70b': 'Llama 70B', 'qwen_72b': 'Qwen 72B',
     'gemma_9b': 'Gemma 9B', 'llama_3b': 'Llama 3B', 'qwen_7b': 'Qwen 7B',
@@ -121,7 +126,7 @@ def normalizar(base):
     return base.replace('_', ' '), 'Desconocido'
 
 
-# ── Carga ─────────────────────────────────────────────────────────────────
+# Carga
 def cargar_todos(input_dir):
     df_total = pd.DataFrame()
     for archivo in glob.glob(os.path.join(input_dir, 'metricas_por_fila_*.csv')):
@@ -148,7 +153,7 @@ def cargar_todos(input_dir):
     return df_total
 
 
-# ── Dibujar QQ en un Axes ─────────────────────────────────────────────────
+# Dibujar QQ en un Axes
 def dibujar_qq(ax, datos, color, titulo_modelo=None):
     if len(datos) < 10:
         ax.text(0.5, 0.5, 'Sin datos', ha='center', va='center', transform=ax.transAxes)
@@ -174,9 +179,7 @@ def dibujar_qq(ax, datos, color, titulo_modelo=None):
     ax.set_axisbelow(True)
 
 
-# ══════════════════════════════════════════════════════════════════════════
 # 1. INDIVIDUALES: 2×2 por métrica (un subplot por modelo)
-# ══════════════════════════════════════════════════════════════════════════
 def generar_individuales(df, output_dir):
     for familia, cfg in ESCENARIOS.items():
         metricas = METRICAS_CALIDAD + (METRICAS_EXTRA if cfg['metricas_extra'] else [])
@@ -224,9 +227,7 @@ def generar_individuales(df, output_dir):
     print("  ✓ Individuales generados")
 
 
-# ══════════════════════════════════════════════════════════════════════════
 # 2. GRIDS: filas=métricas, columnas=modelos
-# ══════════════════════════════════════════════════════════════════════════
 def generar_grids(df, output_dir):
     carpeta = os.path.join(output_dir, 'grids')
     os.makedirs(carpeta, exist_ok=True)
@@ -274,7 +275,7 @@ def generar_grids(df, output_dir):
     print("  ✓ Grids generados")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
+# Main
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input-dir', default='resultados')

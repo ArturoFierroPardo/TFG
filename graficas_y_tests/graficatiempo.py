@@ -1,10 +1,15 @@
-# pip install pandas matplotlib numpy
 """
-Gráficos de Líneas Acumulativos — G1 (9 modelos × 3 datasets) + G2 (7 modelos × Teleco).
-Escala Log-Log. LLMs: continua. SLMs: discontinua. Mini-SLMs: punteada.
-G2: GAN continua, Base punteada, FT discontinua.
+Graficas de tiempo acumulado en escala log-log a partir de los CSV por fila.
 
-USO: python graficatiempo.py --input-dir resultados --output-dir graficas_tiempo
+Grupo 1: 9 modelos sobre WebNLG, ToTTo y KELM (LLM linea continua, SLM
+discontinua, Mini-SLM punteada). Grupo 2: 7 modelos sobre Teleco (GAN continua,
+base punteada, FT discontinua).
+
+Requisitos:
+    pip install pandas matplotlib numpy
+
+Uso:
+    python graficatiempo.py --input-dir resultados --output-dir graficas_tiempo
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -20,7 +25,7 @@ plt.rcParams.update({
     'xtick.direction': 'in', 'ytick.direction': 'in',
 })
 
-# ── G1 ────────────────────────────────────────────────────────────────────
+# G1
 COLORES_G1 = {
     'DeepSeek': '#2E75B6', 'Llama 70B': '#D6604D', 'Qwen 72B': '#E08214',
     'Gemma 9B': '#4393C3', 'Llama 3B': '#7570B3', 'Qwen 7B': '#1B7837',
@@ -59,7 +64,7 @@ ARCHIVO_MAPA_G1 = [
     ('Qwen_7B_WebNLG', 'Qwen 7B', 'WebNLG'), ('Qwen_7B_ToTTo', 'Qwen 7B', 'ToTTo'), ('Qwen_7B_KELM', 'Qwen 7B', 'KELM'),
 ]
 
-# ── G2 ────────────────────────────────────────────────────────────────────
+# G2
 COLORES_G2 = {
     'GAN': '#E41A1C',
     'Gemma 3.1B': '#E7298A', 'Llama 1B': '#66A61E', 'Qwen3 1.7B': '#D95F02',
@@ -89,7 +94,7 @@ ARCHIVO_MAPA_G2 = [
 ]
 
 
-# ── Carga ─────────────────────────────────────────────────────────────────
+# Carga
 def cargar(input_dir, archivo_mapa):
     df_total = pd.DataFrame()
     for archivo in glob.glob(os.path.join(input_dir, "metricas_por_fila_*.csv")):
@@ -113,7 +118,7 @@ def cargar(input_dir, archivo_mapa):
     return df_total
 
 
-# ── Gráfico acumulativo genérico ──────────────────────────────────────────
+# Gráfico acumulativo genérico
 def grafico_acumulativo(df, dataset, orden, colores, estilos, marcadores, titulo, fname):
     if 'Time_seconds' not in df.columns:
         print("  Sin columna Time_seconds")
@@ -175,7 +180,7 @@ def grafico_acumulativo(df, dataset, orden, colores, estilos, marcadores, titulo
     print(f"  {fname}")
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
+# Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default="resultados")
