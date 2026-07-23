@@ -1,7 +1,7 @@
 name: app_teleco_slm
 description: >
   App offline de inferencia LLM local para ingeniería de telecomunicaciones.
-  Ejecuta Qwen 2.5 1.5B Instruct (GGUF) en CPU usando llama.cpp.
+  Ejecuta Qwen 3 1.7B fine-tuned (GGUF, Q4_K_M) de forma offline usando llama.cpp.
 
 publish_to: "none"
 version: 1.0.0+1

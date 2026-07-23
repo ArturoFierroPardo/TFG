@@ -13,6 +13,13 @@ __pycache__/
 # Carpetas de build Flutter
 build/
 .dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Binarios nativos
+*.dll
+*.so
+*.dylib
 
 # IDE
 .idea/
@@ -23,5 +30,39 @@ build/
 .DS_Store
 Thumbs.db
 
-# Claves (por si acaso)
+# Claves y secretos
 .env
+key.properties
+*.jks
+*.keystore
+
+# Build artifacts Android
+**/android/build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Windows shortcuts
+*.lnk
+
+# Instaladores y builds
+*.exe
+*.apk
+*.aab
+Inno Setup*
+TelecoSLM_Setup*
+TelecoSLM_Instalador/
+
+# Modelos descargados
+fine-tuning/qwen3-1.7b-base/
+fine-tuning/qwen3-1.7b-merged/
+otros modelos/
+llama_cpp_convert/
+
+# Archivos temporales
+replacements.txt
+0
+n_total
+
+# Videos
+*.mp4
