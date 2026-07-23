@@ -72,7 +72,7 @@ El flujo general es: generar los splits, lanzar la inferencia de cada familia de
 
 ```bash
 # 1. Splits por subtema (evita data leakage)
-python base_teleco/hacer_splits.py
+python splits/hacer_splits.py
 
 # 2. Inferencia (ejemplos; cada pipeline acepta --help)
 python LLM/pipelineLLM.py --dataset totto --model deepseek
