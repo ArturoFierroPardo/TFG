@@ -11,19 +11,21 @@ Este proyecto compara LLMs, SLMs, Mini-SLMs, modelos fine-tuneados y un GAN gene
 
 ```
 TFG/
-├── LLM/                              # Pipeline de inferencia para LLMs (+70B params)
-├── SLM/                              # Pipeline de inferencia para SLMs (~7-14B params)
-├── mini-SLM/                        # Pipeline de inferencia para Mini-SLMs (~1-3B params)
-├── GAN/                             # Pipeline de la GAN generativa
-├── fine-tuning/                    # Fine-tuning LoRA y fusión de adaptadores
-├── graficas_y_tests/               # Visualizaciones y análisis estadístico
-├── app_teleco_slm/                 # App Flutter (Android + Windows)
-├── base_teleco/                    # Dataset de Telecomunicaciones (~24.680 pares Q&A)
-├── base_kelm/                      # Dataset KELM filtrado por temática STEM
-├── splits/                         # Splits train/val/test por subtema
-├── Manual de Usuario - TelecoSLM.pdf  # Manual de usuario de la app
-├── requirements.txt                # Dependencias Python
+├── LLM/                        # Pipeline de inferencia para LLMs (+70B params)
+├── SLM/                        # Pipeline de inferencia para SLMs (~7-14B params)
+├── mini-SLM/                   # Pipeline de inferencia para Mini-SLMs (~1-3B params)
+├── GAN/                        # Pipeline de la GAN generativa
+├── fine-tuning/                # Fine-tuning LoRA y fusión de adaptadores
+├── graficas_y_tests/           # Visualizaciones y análisis estadístico
+├── app_teleco_slm/             # App Flutter (Android + Windows)
+├── base_teleco/                # Dataset de Telecomunicaciones (~24.680 pares Q&A)
+├── base_kelm/                  # Dataset KELM filtrado por temática STEM
+├── splits/                     # Splits train/val/test por subtema
+├── Manual de Usuario - TelecoSLM.pdf
+├── requirements.txt            # Dependencias Python
+├── .env.example                # Plantilla de variables de entorno
 ├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
