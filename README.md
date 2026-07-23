@@ -1,5 +1,6 @@
 # TFG — Diseño e implementación de una aplicación generativa de explicación de contenidos de telecomunicaciones de dominio específico.
 
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Disponible en Google Play](https://img.shields.io/badge/Google%20Play-Teleco%20SLM-success?logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=com.telecoslm.app)
 
 Trabajo de Fin de Grado en Ingeniería de Sistemas de Telecomunicación (Universidad CEU San Pablo, Madrid).
@@ -40,7 +41,7 @@ pip install -r requirements.txt
 
 ## Variables de entorno
 
-Los pipelines de inferencia por API leen las claves de las siguientes variables de entorno (no van escritas en el código):
+Los pipelines de inferencia por API leen las claves de las siguientes variables de entorno (no van escritas en el código). Consulta `.env.example` para ver la plantilla:
 
 | Variable | Necesaria para |
 |----------|----------------|
@@ -138,7 +139,7 @@ La guía de instalación y uso de la app está en [Manual de Usuario - TelecoSLM
 
 ## base_teleco/
 
-Dataset propio en español construido a partir del plan de estudios de telecomunicaciones de la Universidad CEU San Pablo (~24.680 pares Q&A). Incluye el script `hacer_splits.py` para generar los splits train/val/test por subtema (estratificado por asignatura), de modo que cada subtema queda en un único split y se evita el data leakage.
+Dataset propio en español construido a partir del plan de estudios de telecomunicaciones de la Universidad CEU San Pablo (~24.680 pares Q&A). Los splits train/val/test se generan con `splits/hacer_splits.py` (estratificado por asignatura), de modo que cada subtema queda en un único split y se evita el data leakage.
 
 ## base_kelm/
 
