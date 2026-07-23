@@ -71,30 +71,82 @@ export HF_TOKEN="tu_token"
 
 ## Uso
 
-El flujo general es: generar los splits, lanzar la inferencia de cada familia de modelos, calcular las métricas y, por último, generar gráficas y tests.
+El proyecto tiene dos grupos experimentales independientes que se pueden ejecutar por separado:
+
+- **Grupo 1** — LLM vs SLM vs Mini-SLM sobre datasets genéricos (WebNLG, ToTTo, KELM).
+- **Grupo 2** — Mini-SLM base vs Mini-SLM fine-tuned vs GAN sobre el dataset Teleco.
+
+### Paso 1 — Generar splits (solo Grupo 2)
 
 ```bash
-# 1. Splits por subtema (evita data leakage)
 python splits/hacer_splits.py
+```
 
-# 2. Inferencia (ejemplos; cada pipeline acepta --help)
+Genera los splits train/val/test por subtema para evitar data leakage. Solo necesario para los experimentos sobre el dataset Teleco.
+
+### Paso 2 — Inferencia
+
+**Grupo 1** — Datasets genéricos (WebNLG, ToTTo, KELM):
+
+```bash
 python LLM/pipelineLLM.py --dataset totto --model deepseek
 python SLM/pipelineSLM.py --dataset webnlg --model llama
 python mini-SLM/pipelineminiSLM.py --dataset kelm --model qwen --evaluar
-python SLM/pipelineSLMbbdd.py --model llama          # SLMs sobre dataset de Telecomunicaciones
-python mini-SLM/pipelineminiSLMbbdd.py --model qwen --evaluar  # Mini-SLMs sobre dataset de Telecomunicaciones
+```
 
-# 3. Entrenamiento propio
+**Grupo 2** — Dataset Teleco:
+
+```bash
+python SLM/pipelineSLMbbdd.py --model llama
+python mini-SLM/pipelineminiSLMbbdd.py --model qwen --evaluar
+```
+
+### Paso 3 — Entrenamiento propio (solo Grupo 2)
+
+```bash
+# GAN generativa
 python GAN/pipeline_gan.py --epochs 100
+
+# Fine-tuning LoRA de los tres Mini-SLMs
 python fine-tuning/pipeline_finetuning.py --dataset all
 
-# 4. Métricas y análisis
+# Fusionar adaptadores LoRA con modelos base
+python fine-tuning/fusionar_lora.py
+```
+
+### Paso 4 — Métricas y análisis
+
+```bash
 python graficas_y_tests/calcula_metricas.py --input-dir resultados
 python graficas_y_tests/posthoc.py --input-dir resultados
 python graficas_y_tests/boxplots.py --input-dir resultados
+python graficas_y_tests/violinplots.py --input-dir resultados
+python graficas_y_tests/barplots.py --input-dir resultados
+python graficas_y_tests/qq_plots.py --input-dir resultados
+python graficas_y_tests/graficasdistribucion.py --input-dir resultados
+python graficas_y_tests/graficatiempo.py --input-dir resultados
+python graficas_y_tests/bootstrap.py --input-dir resultados
+python graficas_y_tests/analisis_p.py --input-dir resultados
+python graficas_y_tests/ranking.py --input-dir resultados
 ```
 
-Cada script admite `--help` para ver todas sus opciones.
+### Referencia de flags por script
+
+| Script | Flags principales |
+|--------|-------------------|
+| `LLM/pipelineLLM.py` | `--dataset` `--model` `--limit` `--fix` |
+| `SLM/pipelineSLM.py` | `--dataset` `--model` `--limit` `--fix` `--all` |
+| `SLM/pipelineSLMbbdd.py` | `--model` `--limit` `--fix` `--csv` |
+| `mini-SLM/pipelineminiSLM.py` | `--dataset` `--model` `--limit` `--evaluar` `--fix` `--all` |
+| `mini-SLM/pipelineminiSLMbbdd.py` | `--model` `--limit` `--evaluar` `--fix` `--csv` `--split` |
+| `GAN/pipeline_gan.py` | `--csv` `--epochs` `--modo` `--vocab-size` |
+| `GAN/gan_teleco_v3.py` | `--modo` `--epochs` `--generar` `--evaluar` `--pregunta` `--csv` `--splits-json` `--vocab-size` `--batch-size` |
+| `fine-tuning/pipeline_finetuning.py` | `--csv` `--dataset` `--skip` `--solo` |
+| `fine-tuning/fusionar_lora.py` | *(sin argumentos)* |
+
+Todos los scripts admiten `--help`.
+
+`--fix` reprocesa solo las filas con error. `--all` lanza todas las combinaciones modelo × dataset. `--evaluar` calcula métricas tras la inferencia (ROUGE, METEOR, BLEU, BERTScore). `--limit N` procesa solo N filas (útil para tests rápidos).
 
 ## LLM/
 
@@ -112,9 +164,15 @@ Pipeline de inferencia para modelos pequeños (Gemma 3 1B, Llama 3.2 1B, Qwen 3 
 
 Pipeline completo de la GAN generativa de texto (Conditional SeqGAN con Gumbel-Softmax, ~430M params). Incluye el script de entrenamiento, inferencia sobre dataset de Telecomunicaciones y KELM, cálculo de métricas y generación de curvas de aprendizaje.
 
+- `gan_teleco_v3.py` — Modelo y entrenamiento de la GAN.
+- `pipeline_gan.py` — Pipeline completo: entrena, evalúa sobre Teleco y KELM, y genera resultados.
+
 ## fine-tuning/
 
 Fine-tuning LoRA de Gemma 3 1B, Llama 3.2 1B y Qwen3 1.7B sobre el dataset Teleco (LR=2e-4, rank=8, alpha=16, dropout=0.05, 3 epochs). Incluye fusión de adaptadores LoRA con los modelos base, inferencia sobre dataset de Telecomunicaciones y KELM, y cálculo de métricas.
+
+- `pipeline_finetuning.py` — Fine-tuning LoRA e inferencia.
+- `fusionar_lora.py` — Fusión de adaptadores con modelos base para exportar modelos completos.
 
 ## graficas_y_tests/
 
